@@ -19,7 +19,7 @@ ChartJS.register(
   LinearScale,
   CategoryScale,
   Tooltip,
- Legend
+  Legend
 );
 
 export default function Home() {
@@ -53,7 +53,7 @@ export default function Home() {
       .catch((err) => console.error("Ratio error:", err));
   }, [coinA, coinB]);
 
-  // Load historical chart
+  // Load historical ratio chart
   const loadChart = async () => {
     if (!coinA || !coinB) return;
 
@@ -65,7 +65,7 @@ export default function Home() {
         `https://api.coingecko.com/api/v3/coins/${coinB}/market_chart?vs_currency=usd&days=365`
       );
 
-      const pricesA = rangeA.data.prices;
+      const pricesA = rangeA.data.prices; // [timestamp, price]
       const pricesB = rangeB.data.prices;
 
       const merged = pricesA.map((pA: any, i: number) => ({
@@ -74,17 +74,19 @@ export default function Home() {
       }));
 
       setChartData({
-        labels: merged.map((m) => new Date(m.time).toLocaleDateString()),
+        labels: merged.map((m: any) =>
+          new Date(m.time).toLocaleDateString()
+        ),
         datasets: [
           {
             label: `${coinA.toUpperCase()}/${coinB.toUpperCase()} Ratio`,
-            data: merged.map((m) => m.ratio),
+            data: merged.map((m: any) => m.ratio),
             borderWidth: 2,
           },
         ],
       });
     } catch (err) {
-      console.error("Chart error:", err);
+      console.error("Chart load error:", err);
     }
   };
 
@@ -94,6 +96,7 @@ export default function Home() {
         CoinRatios — Compare Any 2 Cryptos
       </h1>
 
+      {/* Dropdown selectors */}
       <div style={{ display: "flex", gap: 20, marginBottom: 20 }}>
         <select
           value={coinA}
@@ -122,12 +125,14 @@ export default function Home() {
         </select>
       </div>
 
+      {/* Show live ratio */}
       {ratio && (
         <div style={{ fontSize: 24, marginBottom: 20 }}>
           <b>Current Ratio:</b> {ratio.toFixed(6)}
         </div>
       )}
 
+      {/* Load Chart */}
       <button
         onClick={loadChart}
         style={{
@@ -142,6 +147,7 @@ export default function Home() {
         Load 1-Year Ratio Chart
       </button>
 
+      {/* Chart Output */}
       {chartData && (
         <div style={{ marginTop: 30 }}>
           <Line data={chartData} />
