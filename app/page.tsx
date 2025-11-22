@@ -31,8 +31,7 @@ interface Coin {
 
 export default function Home() {
   const [coins, setCoins] = useState<Coin[]>([]);
-  const [searchA, setSearchA] = useState("");
-  const [searchB, setSearchB] = useState("");
+  const [search, setSearch] = useState("");
   const [coinA, setCoinA] = useState<Coin | null>(null);
   const [coinB, setCoinB] = useState<Coin | null>(null);
   const [ratio, setRatio] = useState<number | null>(null);
@@ -48,7 +47,7 @@ export default function Home() {
       .catch(console.error);
   }, []);
 
-  // Auto-load ratio when both selected
+  // Load ratio
   useEffect(() => {
     if (!coinA || !coinB) return;
 
@@ -60,25 +59,24 @@ export default function Home() {
         const a = res.data[coinA.id]?.usd;
         const b = res.data[coinB.id]?.usd;
         if (a && b) setRatio(a / b);
-      })
-      .catch(console.error);
+      });
   }, [coinA, coinB]);
 
-  // Auto-load chart when both selected
+  // Load chart
   useEffect(() => {
     if (!coinA || !coinB) return;
 
     const load = async () => {
-      const rangeA = await axios.get(
+      const a = await axios.get(
         `https://api.coingecko.com/api/v3/coins/${coinA.id}/market_chart?vs_currency=usd&days=365`
       );
-      const rangeB = await axios.get(
+      const b = await axios.get(
         `https://api.coingecko.com/api/v3/coins/${coinB.id}/market_chart?vs_currency=usd&days=365`
       );
 
-      const merged = rangeA.data.prices.map((pA: any, i: number) => ({
+      const merged = a.data.prices.map((pA: any, i: number) => ({
         time: pA[0],
-        ratio: pA[1] / rangeB.data.prices[i][1],
+        ratio: pA[1] / b.data.prices[i][1],
       }));
 
       setChartData({
@@ -87,10 +85,13 @@ export default function Home() {
         ),
         datasets: [
           {
-            label: `${coinA.symbol.toUpperCase()}/${coinB.symbol.toUpperCase()}`,
+            label: `${coinA.symbol.toUpperCase()} / ${coinB.symbol.toUpperCase()}`,
             data: merged.map((m: any) => m.ratio),
-            borderWidth: 3,
+            borderColor: "#3b82f6",
+            backgroundColor: "rgba(59,130,246,0.2)",
+            borderWidth: 2,
             pointRadius: 0,
+            tension: 0.25,
           },
         ],
       });
@@ -99,96 +100,58 @@ export default function Home() {
     load();
   }, [coinA, coinB]);
 
-  const filteredA = coins.filter((c) =>
-    `${c.name} ${c.symbol}`.toLowerCase().includes(searchA.toLowerCase())
-  );
-  const filteredB = coins.filter((c) =>
-    `${c.name} ${c.symbol}`.toLowerCase().includes(searchB.toLowerCase())
+  const filtered = coins.filter((c) =>
+    `${c.name} ${c.symbol}`.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
-    <div style={{ padding: 40, maxWidth: 1100, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 34, marginBottom: 25 }}>
-        CoinRatios — Compare Any 2 Cryptos
-      </h1>
+    <div style={{ padding: 40, maxWidth: 900, margin: "0 auto" }}>
+      <h1 style={{ marginBottom: 24 }}>CoinRatios</h1>
 
-      {/* 2-COLUMN SELECTOR CARDS */}
-      <div style={{ display: "flex", gap: 20 }}>
-        {/* LEFT CARD */}
-        <div className="card" style={{ flex: 1 }}>
-          <div style={{ fontWeight: "bold", marginBottom: 10 }}>
-            Select Coin A
-          </div>
-          <input
-            className="search-input"
-            placeholder="Search..."
-            value={searchA}
-            onChange={(e) => setSearchA(e.target.value)}
-          />
+      <input
+        className="search-input"
+        placeholder="Search coins..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
 
-          <div className="coin-list">
-            {filteredA.map((coin) => (
-              <div
-                key={coin.id}
-                className={`coin-item ${
-                  coinA?.id === coin.id ? "selected" : ""
-                }`}
-                onClick={() => setCoinA(coin)}
-              >
-                <img
-                  src={coin.image}
-                  width={24}
-                  height={24}
-                  style={{ marginRight: 10 }}
-                />
-                {coin.name} ({coin.symbol.toUpperCase()})
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="coin-list">
+        {filtered.map((coin) => {
+          const selected =
+            coinA?.id === coin.id || coinB?.id === coin.id;
 
-        {/* RIGHT CARD */}
-        <div className="card" style={{ flex: 1 }}>
-          <div style={{ fontWeight: "bold", marginBottom: 10 }}>
-            Select Coin B
-          </div>
-          <input
-            className="search-input"
-            placeholder="Search..."
-            value={searchB}
-            onChange={(e) => setSearchB(e.target.value)}
-          />
-
-          <div className="coin-list">
-            {filteredB.map((coin) => (
-              <div
-                key={coin.id}
-                className={`coin-item ${
-                  coinB?.id === coin.id ? "selected" : ""
-                }`}
-                onClick={() => setCoinB(coin)}
-              >
-                <img
-                  src={coin.image}
-                  width={24}
-                  height={24}
-                  style={{ marginRight: 10 }}
-                />
-                {coin.name} ({coin.symbol.toUpperCase()})
-              </div>
-            ))}
-          </div>
-        </div>
+          return (
+            <div
+              key={coin.id}
+              className={`coin-item ${selected ? "selected" : ""}`}
+              onClick={() => {
+                if (!coinA) setCoinA(coin);
+                else if (!coinB) setCoinB(coin);
+                else {
+                  setCoinA(coin);
+                  setCoinB(null);
+                }
+              }}
+            >
+              <img
+                src={coin.image}
+                width={22}
+                height={22}
+                style={{ marginRight: 8 }}
+              />
+              {coin.name} ({coin.symbol.toUpperCase()})
+            </div>
+          );
+        })}
       </div>
 
-      {/* RATIO HEADER */}
-      {ratio && (
-        <h2 style={{ marginTop: 30 }}>
-          <b>Ratio:</b> {ratio.toFixed(6)}
+      {coinA && coinB && ratio && (
+        <h2 style={{ marginTop: 20 }}>
+          <b>{coinA.symbol.toUpperCase()}</b> /
+          <b> {coinB.symbol.toUpperCase()}</b>: {ratio.toFixed(6)}
         </h2>
       )}
 
-      {/* CHART */}
       {chartData && (
         <div className="chart-container">
           <Line data={chartData} />
@@ -197,3 +160,4 @@ export default function Home() {
     </div>
   );
 }
+
