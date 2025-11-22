@@ -1,42 +1,129 @@
+/* ------------------------------------------------------ */
+/* Light / Dark Theme Variables                           */
+/* ------------------------------------------------------ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #ffffff;
+  --text: #111111;
+  --card-bg: #fafafa;
+  --card-border: #e6e6e6;
+  --accent: #2f73ff;
+  --chart-grid: #cccccc;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html.dark {
+  --bg: #111111;
+  --text: #e6e6e6;
+  --card-bg: #1a1a1a;
+  --card-border: #333333;
+  --accent: #4d9dff;
+  --chart-grid: #444444;
 }
 
-html,
+/* ------------------------------------------------------ */
+/* Base Styling                                           */
+/* ------------------------------------------------------ */
+
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
-  box-sizing: border-box;
-  padding: 0;
+  background: var(--bg);
+  color: var(--text);
   margin: 0;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+h1 {
+  color: var(--text);
+  font-weight: 700;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* ------------------------------------------------------ */
+/* Theme Toggle Button                                     */
+/* ------------------------------------------------------ */
+
+.theme-toggle-container {
+  position: fixed;
+  top: 15px;
+  right: 20px;
+  z-index: 100;
+}
+
+.theme-toggle-btn {
+  padding: 8px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------ */
+/* Coin Selector Cards                                    */
+/* ------------------------------------------------------ */
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 15px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.coin-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 10px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+}
+
+.coin-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.coin-item:hover {
+  background: rgba(47, 115, 255, 0.08);
+}
+
+.coin-item.selected {
+  background: rgba(47, 115, 255, 0.15);
+}
+
+/* ------------------------------------------------------ */
+/* Buttons                                                */
+/* ------------------------------------------------------ */
+
+.button-primary {
+  background: var(--accent);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------ */
+/* Chart Container                                        */
+/* ------------------------------------------------------ */
+
+.chart-container {
+  margin-top: 30px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
 }
