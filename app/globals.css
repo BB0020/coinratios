@@ -80,7 +80,7 @@ h1 {
 }
 
 .coin-list {
-  max-height: 200px;
+  max-height: 300px;
   overflow-y: auto;
   margin-top: 10px;
   border: 1px solid var(--card-border);
@@ -92,6 +92,7 @@ h1 {
   align-items: center;
   padding: 8px;
   cursor: pointer;
+  color: var(--text);
 }
 
 .coin-item:hover {
