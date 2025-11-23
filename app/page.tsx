@@ -15,19 +15,16 @@ interface Currency {
 }
 
 /* ------------------------------------------------------ */
-/* Fiat Currency List */
+/* Fiat (with EMOJI flags) */
 /* ------------------------------------------------------ */
 const FIAT: Currency[] = [
-  { id: "usd", symbol: "USD", name: "US Dollar", image: "/flags/us.svg", isFiat: true },
-  { id: "eur", symbol: "EUR", name: "Euro", image: "/flags/eu.svg", isFiat: true },
-  { id: "gbp", symbol: "GBP", name: "British Pound", image: "/flags/gb.svg", isFiat: true },
-  { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "/flags/ca.svg", isFiat: true },
-  { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "/flags/au.svg", isFiat: true },
+  { id: "usd", symbol: "USD", name: "US Dollar", image: "🇺🇸", isFiat: true },
+  { id: "eur", symbol: "EUR", name: "Euro", image: "🇪🇺", isFiat: true },
+  { id: "gbp", symbol: "GBP", name: "British Pound", image: "🇬🇧", isFiat: true },
+  { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "🇨🇦", isFiat: true },
+  { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "🇦🇺", isFiat: true },
 ];
 
-/* ------------------------------------------------------ */
-/* Component */
-/* ------------------------------------------------------ */
 export default function Home() {
   const [cryptoList, setCryptoList] = useState<Currency[]>([]);
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
@@ -64,9 +61,7 @@ export default function Home() {
       .catch(console.error);
   }, []);
 
-  /* ------------------------------------------------------ */
-  /* Set Default Values Once List Loads */
-  /* ------------------------------------------------------ */
+  /* Set defaults */
   useEffect(() => {
     if (cryptoList.length > 0 && !from && !to) {
       const btc = cryptoList.find((x) => x.symbol === "BTC");
@@ -80,7 +75,7 @@ export default function Home() {
   }, [cryptoList]);
 
   /* ------------------------------------------------------ */
-  /* Calculate Conversion */
+  /* Conversion Logic */
   /* ------------------------------------------------------ */
   useEffect(() => {
     if (!from || !to || !amount) return;
@@ -113,22 +108,15 @@ export default function Home() {
     fetchPrices();
   }, [from, to, amount]);
 
-  /* ------------------------------------------------------ */
-  /* Filtering */
-  /* ------------------------------------------------------ */
   const allCurrencies = [...FIAT, ...cryptoList];
 
   const filteredFrom = allCurrencies.filter((c) =>
     `${c.symbol} ${c.name}`.toLowerCase().includes(searchFrom.toLowerCase())
   );
-
   const filteredTo = allCurrencies.filter((c) =>
     `${c.symbol} ${c.name}`.toLowerCase().includes(searchTo.toLowerCase())
   );
 
-  /* ------------------------------------------------------ */
-  /* Swap */
-  /* ------------------------------------------------------ */
   const swap = () => {
     const a = from;
     const b = to;
@@ -136,12 +124,9 @@ export default function Home() {
     setTo(a);
   };
 
-  /* ------------------------------------------------------ */
-  /* UI */
-/* ------------------------------------------------------ */
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: 40 }}>
-      
+
       {/* Amount */}
       <div style={{ marginBottom: 25 }}>
         <label>Amount</label>
@@ -158,9 +143,9 @@ export default function Home() {
       </div>
 
       <div style={{ display: "flex", gap: 30, alignItems: "center" }}>
-        
+
         {/* FROM */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, position: "relative" }}>
           <label>FROM</label>
 
           <div
@@ -168,11 +153,15 @@ export default function Home() {
             onClick={() => setOpenDropdown(openDropdown === "from" ? null : "from")}
           >
             {from && (
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <img src={from.image} width={32} height={32} />
-                <div style={{ marginLeft: 12 }}>
-                  <div style={{ fontWeight: 600 }}>{from.symbol}</div>
-                  <div style={{ opacity: 0.7 }}>{from.name}</div>
+              <div className="coin-row">
+                {from.isFiat ? (
+                  <span className="fiat-emoji">{from.image}</span>
+                ) : (
+                  <img src={from.image} className="coin-img" />
+                )}
+                <div className="coin-meta">
+                  <div className="coin-symbol">{from.symbol}</div>
+                  <div className="coin-name">{from.name}</div>
                 </div>
               </div>
             )}
@@ -181,7 +170,7 @@ export default function Home() {
           <div className={`dropdown-panel ${openDropdown === "from" ? "open" : ""}`}>
             <input
               className="dropdown-search"
-              placeholder="Search all..."
+              placeholder="Search..."
               value={searchFrom}
               onChange={(e) => setSearchFrom(e.target.value)}
             />
@@ -196,7 +185,11 @@ export default function Home() {
                   setSearchFrom("");
                 }}
               >
-                <img src={c.image} />
+                {c.isFiat ? (
+                  <span className="fiat-emoji">{c.image}</span>
+                ) : (
+                  <img src={c.image} />
+                )}
                 <span className="dropdown-item-symbol">{c.symbol}</span>
                 <span className="dropdown-item-name">{c.name}</span>
               </div>
@@ -204,13 +197,13 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Swap Button */}
+        {/* SWAP BUTTON (CSS ARROW) */}
         <div className="swap-btn" onClick={swap}>
-          <img src="/swap.svg" />
+          <div className="swap-arrow"></div>
         </div>
 
         {/* TO */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, position: "relative" }}>
           <label>TO</label>
 
           <div
@@ -218,11 +211,15 @@ export default function Home() {
             onClick={() => setOpenDropdown(openDropdown === "to" ? null : "to")}
           >
             {to && (
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <img src={to.image} width={32} height={32} />
-                <div style={{ marginLeft: 12 }}>
-                  <div style={{ fontWeight: 600 }}>{to.symbol}</div>
-                  <div style={{ opacity: 0.7 }}>{to.name}</div>
+              <div className="coin-row">
+                {to.isFiat ? (
+                  <span className="fiat-emoji">{to.image}</span>
+                ) : (
+                  <img src={to.image} className="coin-img" />
+                )}
+                <div className="coin-meta">
+                  <div className="coin-symbol">{to.symbol}</div>
+                  <div className="coin-name">{to.name}</div>
                 </div>
               </div>
             )}
@@ -231,7 +228,7 @@ export default function Home() {
           <div className={`dropdown-panel ${openDropdown === "to" ? "open" : ""}`}>
             <input
               className="dropdown-search"
-              placeholder="Search all..."
+              placeholder="Search..."
               value={searchTo}
               onChange={(e) => setSearchTo(e.target.value)}
             />
@@ -246,7 +243,11 @@ export default function Home() {
                   setSearchTo("");
                 }}
               >
-                <img src={c.image} />
+                {c.isFiat ? (
+                  <span className="fiat-emoji">{c.image}</span>
+                ) : (
+                  <img src={c.image} />
+                )}
                 <span className="dropdown-item-symbol">{c.symbol}</span>
                 <span className="dropdown-item-name">{c.name}</span>
               </div>
@@ -261,6 +262,7 @@ export default function Home() {
           <div style={{ fontSize: 18, opacity: 0.7 }}>
             1 {from?.symbol} → {to?.symbol}
           </div>
+
           <div style={{ fontSize: 60, fontWeight: 700 }}>
             {result.toFixed(6)} {to?.symbol}
           </div>
