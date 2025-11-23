@@ -1,4 +1,37 @@
-/* GENERAL CARDS */
+/* ROOT THEME VARIABLES */
+:root {
+  --bg: #ffffff;
+  --text: #111111;
+  --card-bg: #fafafa;
+  --card-border: #e6e6e6;
+  --accent: #2f73ff;
+  --error: #ff4d4d;
+}
+
+html.dark {
+  --bg: #111111;
+  --text: #e6e6e6;
+  --card-bg: #1a1a1a;
+  --card-border: #333333;
+  --accent: #4d9dff;
+  --error: #ff6666;
+}
+
+/* BASE */
+body {
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+h1 {
+  font-size: 28px;
+  margin-bottom: 30px;
+}
+
+/* INPUT + CARD */
 .card-coin {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
@@ -8,19 +41,10 @@
 }
 
 .label {
-  color: var(--text);
-  font-size: 13px;
-  opacity: 0.6;
+  font-size: 12px;
+  opacity: 0.65;
   margin-bottom: 6px;
   display: block;
-}
-
-/* GRID */
-.top-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 60px 1fr;
-  gap: 20px;
-  align-items: end;
 }
 
 /* AMOUNT INPUT */
@@ -34,7 +58,21 @@
   font-size: 22px;
 }
 
-/* DROPDOWN BOX */
+.amount-error {
+  color: var(--error);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+/* GRID */
+.top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 60px 1fr;
+  gap: 20px;
+  align-items: end;
+}
+
+/* DROPDOWN SELECTOR */
 .dropdown-box {
   padding: 12px;
   border-radius: 8px;
@@ -47,44 +85,55 @@
 }
 
 .placeholder {
-  color: var(--text);
   opacity: 0.5;
 }
 
-.coin-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-}
-
-/* DROPDOWN LIST */
-.dropdown-list {
+/* DROPDOWN PANEL */
+.dropdown-panel {
   position: absolute;
-  top: 95px;
+  top: 92px;
   left: 0;
   right: 0;
-  max-height: 260px;
-  overflow-y: auto;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 10px;
   z-index: 50;
+  padding: 12px;
+  max-height: 330px;
+  overflow-y: auto;
 }
 
+/* SEARCH BAR INSIDE DROPDOWN */
+.dropdown-search {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--card-border);
+  background: var(--bg);
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+/* LIST ITEMS */
 .dropdown-item {
   padding: 12px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   gap: 12px;
   cursor: pointer;
-  color: var(--text);
 }
 
 .dropdown-item:hover {
-  background: rgba(47, 115, 255, 0.1);
+  background: rgba(47, 115, 255, 0.15);
 }
 
-/* SWAP BUTTON */
+/* EMOJI FLAG = ICON */
+.flag-icon {
+  font-size: 22px;
+}
+
+/* SWAP */
 .swap-wrap {
   display: flex;
   justify-content: center;
@@ -101,34 +150,28 @@
   border: 1px solid var(--card-border);
   color: var(--text);
   cursor: pointer;
+  transition: 0.2s;
 }
 
 .swap-btn:hover {
   background: var(--accent);
   color: #fff;
+  transform: rotate(90deg);
 }
 
-/* RATIO OUTPUT SECTION */
+/* RATIO OUTPUT */
 .ratio-box {
   text-align: center;
-  margin-top: 50px;
-}
-
-.ratio-label {
-  color: var(--text);
-  font-size: 18px;
-  opacity: 0.8;
+  margin-top: 40px;
 }
 
 .ratio-big {
-  font-size: 72px;
+  font-size: 58px;
   font-weight: 700;
-  color: var(--text);
-  margin: 20px 0;
+  margin: 12px 0;
 }
 
 .ratio-sub {
-  color: var(--text);
-  font-size: 22px;
-  opacity: 0.7;
+  font-size: 20px;
+  opacity: 0.75;
 }
