@@ -5,14 +5,38 @@ import axios from "axios";
 
 // Fiat currencies injected as virtual coins
 const fiatCurrencies = [
-  { id: "usd", symbol: "usd", name: "US Dollar", flag: "🇺🇸" },
-  { id: "eur", symbol: "eur", name: "Euro", flag: "🇪🇺" },
-  { id: "gbp", symbol: "gbp", name: "British Pound", flag: "🇬🇧" },
-  { id: "cad", symbol: "cad", name: "Canadian Dollar", flag: "🇨🇦" },
-  { id: "aud", symbol: "aud", name: "Australian Dollar", flag: "🇦🇺" },
-  { id: "jpy", symbol: "jpy", name: "Japanese Yen", flag: "🇯🇵" },
-  { id: "chf", symbol: "chf", name: "Swiss Franc", flag: "🇨🇭" },
+  {
+    id: "usd",
+    symbol: "usd",
+    name: "US Dollar",
+    flag: "https://flagcdn.com/us.svg",
+  },
+  {
+    id: "eur",
+    symbol: "eur",
+    name: "Euro",
+    flag: "https://flagcdn.com/eu.svg",
+  },
+  {
+    id: "gbp",
+    symbol: "gbp",
+    name: "British Pound",
+    flag: "https://flagcdn.com/gb.svg",
+  },
+  {
+    id: "cad",
+    symbol: "cad",
+    name: "Canadian Dollar",
+    flag: "https://flagcdn.com/ca.svg",
+  },
+  {
+    id: "aud",
+    symbol: "aud",
+    name: "Australian Dollar",
+    flag: "https://flagcdn.com/au.svg",
+  }
 ];
+
 
 interface Coin {
   id: string;
