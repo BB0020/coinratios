@@ -1,138 +1,177 @@
-/* Light / Dark Theme Variables */
+/* ROOT THEME VARIABLES */
 :root {
   --bg: #ffffff;
   --text: #111111;
   --card-bg: #fafafa;
   --card-border: #e6e6e6;
   --accent: #2f73ff;
+  --error: #ff4d4d;
 }
 
 html.dark {
-  --bg: #111;
+  --bg: #111111;
   --text: #e6e6e6;
   --card-bg: #1a1a1a;
-  --card-border: #333;
+  --card-border: #333333;
   --accent: #4d9dff;
+  --error: #ff6666;
 }
 
+/* BASE */
 body {
   background: var(--bg);
   color: var(--text);
   margin: 0;
-  font-family: Arial;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Coin card */
+h1 {
+  font-size: 28px;
+  margin-bottom: 30px;
+}
+
+/* INPUT + CARD */
 .card-coin {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  padding: 14px 18px;
-  border-radius: 12px;
+  padding: 14px;
+  border-radius: 10px;
+  position: relative;
+}
+
+.label {
+  font-size: 12px;
+  opacity: 0.65;
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* AMOUNT INPUT */
+.amount-input {
+  width: 100%;
+  padding: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 22px;
+}
+
+.amount-error {
+  color: var(--error);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+/* GRID */
+.top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 60px 1fr;
+  gap: 20px;
+  align-items: end;
+}
+
+/* DROPDOWN SELECTOR */
+.dropdown-box {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
 }
 
-.coin-row {
-  display: flex;
-  align-items: center;
+.placeholder {
+  opacity: 0.5;
 }
 
-.coin-img {
-  width: 32px;
-  height: 32px;
-}
-
-.fiat-emoji {
-  font-size: 32px;
-}
-
-.coin-meta {
-  margin-left: 12px;
-}
-
-.coin-symbol {
-  font-weight: 700;
-}
-
-.coin-name {
-  opacity: 0.65;
-}
-
-/* Dropdown */
+/* DROPDOWN PANEL */
 .dropdown-panel {
   position: absolute;
+  top: 92px;
   left: 0;
   right: 0;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 10px;
-  max-height: 300px;
-  overflow-y: auto;
+  z-index: 50;
   padding: 12px;
-  margin-top: 6px;
-  display: none;
+  max-height: 330px;
+  overflow-y: auto;
 }
 
-.dropdown-panel.open {
-  display: block;
-}
-
+/* SEARCH BAR INSIDE DROPDOWN */
 .dropdown-search {
   width: 100%;
-  padding: 8px 10px;
+  padding: 10px;
   border-radius: 6px;
   border: 1px solid var(--card-border);
-  margin-bottom: 8px;
+  background: var(--bg);
+  color: var(--text);
+  margin-bottom: 12px;
 }
 
+/* LIST ITEMS */
 .dropdown-item {
+  padding: 12px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
-  padding: 8px;
+  gap: 12px;
   cursor: pointer;
-  border-radius: 8px;
 }
 
 .dropdown-item:hover {
   background: rgba(47, 115, 255, 0.15);
 }
 
-/* Amount input */
-.amount-input {
-  width: 100%;
-  padding: 18px;
+/* EMOJI FLAG = ICON */
+.flag-icon {
   font-size: 22px;
-  border-radius: 12px;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
 }
 
-/* Swap Button CSS Arrow */
-.swap-btn {
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
+/* SWAP */
+.swap-wrap {
   display: flex;
   justify-content: center;
   align-items: center;
+}
+
+.swap-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 26px;
+  border: none;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text);
   cursor: pointer;
+  transition: 0.2s;
 }
 
 .swap-btn:hover {
   background: var(--accent);
+  color: #fff;
+  transform: rotate(90deg);
 }
 
-.swap-arrow {
-  width: 20px;
-  height: 20px;
-  border-right: 3px solid var(--text);
-  border-bottom: 3px solid var(--text);
-  transform: rotate(45deg);
-  transition: 0.2s;
+/* RATIO OUTPUT */
+.ratio-box {
+  text-align: center;
+  margin-top: 40px;
 }
 
-.swap-btn:hover .swap-arrow {
-  border-color: white;
-  transform: rotate(225deg);
+.ratio-big {
+  font-size: 58px;
+  font-weight: 700;
+  margin: 12px 0;
+}
+
+.ratio-sub {
+  font-size: 20px;
+  opacity: 0.75;
 }
