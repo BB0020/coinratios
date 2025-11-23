@@ -25,6 +25,7 @@ export default function Page() {
   const [search, setSearch] = useState("");
 
   const [amount, setAmount] = useState("1");
+  const [isInvalid, setIsInvalid] = useState(false);
 
   const [fromCoin, setFromCoin] = useState<Item | null>(null);
   const [toCoin, setToCoin] = useState<Item | null>(null);
@@ -35,7 +36,23 @@ export default function Page() {
 
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  // Load coins
+  /* ------------------------------- */
+  /* Close dropdown when clicking outside */
+  /* ------------------------------- */
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  /* ------------------------------- */
+  /* Load coins from API */
+  /* ------------------------------- */
   useEffect(() => {
     axios
       .get(
@@ -53,20 +70,15 @@ export default function Page() {
         const combined = [...fiatList, ...cryptoItems];
         setAllCoins(combined);
 
-        // Default values (BTC → USD)
-        const defaultFrom: Item | null =
-          cryptoItems.find((c: any) => c.symbol === "BTC") || null;
-
-        const defaultTo: Item | null =
-          fiatList.find((f: Item) => f.symbol === "USD") || null;
-
-        setFromCoin(defaultFrom);
-        setToCoin(defaultTo);
+        setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || null);
+        setToCoin(fiatList.find((f) => f.symbol === "USD") || null);
       })
       .catch(console.error);
   }, []);
 
-  // Filter list
+  /* ------------------------------- */
+  /* Filter search list */
+  /* ------------------------------- */
   useEffect(() => {
     if (!search) {
       setFiltered(allCoins);
@@ -76,16 +88,31 @@ export default function Page() {
     const s = search.toLowerCase();
     setFiltered(
       allCoins.filter(
-        (c: Item) =>
+        (c) =>
           c.name.toLowerCase().includes(s) ||
           c.symbol.toLowerCase().includes(s)
       )
     );
   }, [search, allCoins]);
 
-  // Calculate conversion
+  /* ------------------------------- */
+  /* Numeric-only validation */
+  /* ------------------------------- */
+  const handleAmountChange = (value: string) => {
+    if (/^[0-9]*\.?[0-9]*$/.test(value)) {
+      setAmount(value);
+      setIsInvalid(!value || Number(value) <= 0);
+    }
+  };
+
+  /* ------------------------------- */
+  /* Calculate conversion */
+  /* ------------------------------- */
   useEffect(() => {
-    if (!fromCoin || !toCoin || !amount) return;
+    if (!fromCoin || !toCoin || !amount || Number(amount) <= 0) {
+      setResult(null);
+      return;
+    }
 
     const fetchRate = async () => {
       const res = await axios.get(
@@ -104,6 +131,9 @@ export default function Page() {
     fetchRate();
   }, [fromCoin, toCoin, amount]);
 
+  /* ------------------------------- */
+  /* Apply dropdown selection */
+  /* ------------------------------- */
   const applySelection = (coin: Item, side: "from" | "to") => {
     if (side === "from") setFromCoin(coin);
     else setToCoin(coin);
@@ -111,6 +141,9 @@ export default function Page() {
     setSearch("");
   };
 
+  /* ------------------------------- */
+  /* Swap coins */
+  /* ------------------------------- */
   const swapCoins = () => {
     if (!fromCoin || !toCoin) return;
     const temp = fromCoin;
@@ -118,13 +151,17 @@ export default function Page() {
     setToCoin(temp);
   };
 
+  /* ------------------------------- */
+  /* Render UI */
+  /* ------------------------------- */
+
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
       {/* AMOUNT */}
       <h3>AMOUNT</h3>
       <input
         value={amount}
-        onChange={(e) => setAmount(e.target.value)}
+        onChange={(e) => handleAmountChange(e.target.value)}
         style={{
           width: "420px",
           padding: "18px",
@@ -132,13 +169,18 @@ export default function Page() {
           border: "1px solid var(--card-border)",
           background: "var(--card-bg)",
           fontSize: "22px",
-          marginBottom: "26px",
+          marginBottom: "6px",
         }}
       />
+      {isInvalid && (
+        <div style={{ color: "red", fontSize: "14px", marginBottom: "20px" }}>
+          Enter a Number Greater than 0
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: "26px", alignItems: "center" }}>
         {/* FROM */}
-        <div>
+        <div style={{ position: "relative" }}>
           <h3>FROM</h3>
           <div
             className="selector-box"
@@ -161,12 +203,12 @@ export default function Page() {
             <div className="dropdown-panel" ref={panelRef}>
               <input
                 className="dropdown-search"
-                placeholder="Search all..."
+                placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
 
-              {filtered.map((coin: Item) => (
+              {filtered.map((coin) => (
                 <div
                   key={coin.id}
                   className="dropdown-row"
@@ -181,13 +223,15 @@ export default function Page() {
           )}
         </div>
 
-        {/* SWAP BUTTON */}
+        {/* SWAP */}
         <div className="swap-circle" onClick={swapCoins}>
-          <div className="swap-icon" />
+          <div className="swap-icon">
+            <span></span>
+          </div>
         </div>
 
         {/* TO */}
-        <div>
+        <div style={{ position: "relative" }}>
           <h3>TO</h3>
           <div
             className="selector-box"
@@ -207,15 +251,15 @@ export default function Page() {
           </div>
 
           {openDropdown === "to" && (
-            <div className="dropdown-panel">
+            <div className="dropdown-panel" ref={panelRef}>
               <input
                 className="dropdown-search"
-                placeholder="Search all..."
+                placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
 
-              {filtered.map((coin: Item) => (
+              {filtered.map((coin) => (
                 <div
                   key={coin.id}
                   className="dropdown-row"
@@ -232,7 +276,7 @@ export default function Page() {
       </div>
 
       {/* RESULT */}
-      {result !== null && fromCoin && toCoin && (
+      {result !== null && fromCoin && toCoin && !isInvalid && (
         <div style={{ textAlign: "center", marginTop: "40px" }}>
           <div style={{ fontSize: "22px", opacity: 0.7 }}>
             {`1 ${fromCoin.symbol} → ${toCoin.symbol}`}

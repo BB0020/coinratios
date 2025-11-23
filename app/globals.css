@@ -1,5 +1,5 @@
 /* ------------------------------------------------------ */
-/* Theme Variables                                         */
+/* Theme Variables */
 /* ------------------------------------------------------ */
 
 :root {
@@ -19,7 +19,7 @@ html.dark {
 }
 
 /* ------------------------------------------------------ */
-/* Base                                                    */
+/* Base */
 /* ------------------------------------------------------ */
 
 body {
@@ -31,12 +31,14 @@ body {
     Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
-h1, h2, h3 {
+h1,
+h2,
+h3 {
   margin: 0;
 }
 
 /* ------------------------------------------------------ */
-/* Swap Arrow (CSS Only Icon)                              */
+/* Swap Arrow (CSS Animated Icon) */
 /* ------------------------------------------------------ */
 
 .swap-circle {
@@ -49,47 +51,88 @@ h1, h2, h3 {
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  transition: 0.2s;
+  transition: 0.25s ease;
 }
 
 .swap-circle:hover {
   background: var(--accent);
 }
 
+/* Icon container */
 .swap-icon {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   position: relative;
+  transition: transform 0.35s ease;
 }
 
-.swap-icon::before,
+/* Rotate on hover */
+.swap-circle:hover .swap-icon {
+  transform: rotate(180deg);
+}
+
+/* ---- Arrow 1 (Up-right) ---- */
+
+.swap-icon::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 3px;
+  background: var(--text);
+  top: 6px;
+  left: 5px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
 .swap-icon::after {
   content: "";
   position: absolute;
-  width: 10px;
-  height: 2px;
+  width: 9px;
+  height: 3px;
   background: var(--text);
-}
-
-.swap-icon::before {
+  top: 12px;
+  left: 16px;
   transform: rotate(45deg);
-  top: 6px;
-  left: 6px;
+  border-radius: 2px;
 }
 
-.swap-icon::after {
-  transform: rotate(-45deg);
+/* ---- Arrow 2 (Down-left) ---- */
+
+.swap-icon span::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 3px;
+  background: var(--text);
   bottom: 6px;
-  right: 6px;
+  right: 5px;
+  transform: rotate(225deg);
+  border-radius: 2px;
 }
 
+.swap-icon span::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 3px;
+  background: var(--text);
+  bottom: 12px;
+  right: 16px;
+  transform: rotate(225deg);
+  border-radius: 2px;
+}
+
+/* Hover arrows turn white */
 .swap-circle:hover .swap-icon::before,
-.swap-circle:hover .swap-icon::after {
+.swap-circle:hover .swap-icon::after,
+.swap-circle:hover .swap-icon span::before,
+.swap-circle:hover .swap-icon span::after {
   background: white;
 }
 
 /* ------------------------------------------------------ */
-/* Dropdown                                                */
+/* Dropdown */
 /* ------------------------------------------------------ */
 
 .selector-box {
@@ -132,7 +175,7 @@ h1, h2, h3 {
   border-radius: 12px;
   max-height: 360px;
   overflow-y: auto;
-  z-index: 300;
+  z-index: 9999;
 }
 
 .dropdown-search {
