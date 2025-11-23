@@ -31,14 +31,12 @@ body {
     Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
-h1,
-h2,
-h3 {
+h1, h2, h3 {
   margin: 0;
 }
 
 /* ------------------------------------------------------ */
-/* Swap Arrow (CSS Animated Icon) */
+/* Swap Arrow (Pure CSS Curved) */
 /* ------------------------------------------------------ */
 
 .swap-circle {
@@ -58,11 +56,10 @@ h3 {
   background: var(--accent);
 }
 
-/* Icon container */
 .swap-icon {
+  position: relative;
   width: 28px;
   height: 28px;
-  position: relative;
   transition: transform 0.35s ease;
 }
 
@@ -71,64 +68,39 @@ h3 {
   transform: rotate(180deg);
 }
 
-/* ---- Arrow 1 (Up-right) ---- */
-
+/* Curved Arrow Above */
 .swap-icon::before {
   content: "";
   position: absolute;
-  width: 14px;
-  height: 3px;
-  background: var(--text);
-  top: 6px;
-  left: 5px;
-  transform: rotate(45deg);
-  border-radius: 2px;
+  top: 3px;
+  left: 0px;
+  width: 100%;
+  height: 10px;
+  border-top: 4px solid var(--text);
+  border-radius: 50%;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  transform: rotate(180deg);
 }
 
+/* Curved Arrow Below */
 .swap-icon::after {
   content: "";
   position: absolute;
-  width: 9px;
-  height: 3px;
-  background: var(--text);
-  top: 12px;
-  left: 16px;
-  transform: rotate(45deg);
-  border-radius: 2px;
+  bottom: 3px;
+  left: 0px;
+  width: 100%;
+  height: 10px;
+  border-bottom: 4px solid var(--text);
+  border-radius: 50%;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
 }
 
-/* ---- Arrow 2 (Down-left) ---- */
-
-.swap-icon span::before {
-  content: "";
-  position: absolute;
-  width: 14px;
-  height: 3px;
-  background: var(--text);
-  bottom: 6px;
-  right: 5px;
-  transform: rotate(225deg);
-  border-radius: 2px;
-}
-
-.swap-icon span::after {
-  content: "";
-  position: absolute;
-  width: 9px;
-  height: 3px;
-  background: var(--text);
-  bottom: 12px;
-  right: 16px;
-  transform: rotate(225deg);
-  border-radius: 2px;
-}
-
-/* Hover arrows turn white */
+/* Hover turns white */
 .swap-circle:hover .swap-icon::before,
-.swap-circle:hover .swap-icon::after,
-.swap-circle:hover .swap-icon span::before,
-.swap-circle:hover .swap-icon span::after {
-  background: white;
+.swap-circle:hover .swap-icon::after {
+  border-color: white;
 }
 
 /* ------------------------------------------------------ */
@@ -144,6 +116,13 @@ h3 {
   display: flex;
   align-items: center;
   width: 420px;
+  transition: opacity 0.2s;
+}
+
+/* Disabled when From = To */
+.selector-disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .selector-img {

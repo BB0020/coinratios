@@ -36,104 +36,108 @@ export default function Page() {
 
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  /* ------------------------------- */
-  /* Close dropdown when clicking outside */
-  /* ------------------------------- */
+  /* ------------------------------------------------------ */
+  /* Close dropdown on outside click */
+  /* ------------------------------------------------------ */
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
+    const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpenDropdown(null);
       }
     };
 
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  /* ------------------------------- */
-  /* Load coins from API */
-  /* ------------------------------- */
+  /* ------------------------------------------------------ */
+  /* Load coins */
+  /* ------------------------------------------------------ */
   useEffect(() => {
-    axios
-      .get(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=120&page=1"
-      )
-      .then((res) => {
-        const cryptoItems: Item[] = res.data.map((c: any) => ({
-          id: c.id,
-          symbol: c.symbol.toUpperCase(),
-          name: c.name,
-          type: "crypto",
-          image: c.image,
-        }));
+    axios.get(
+      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=120&page=1"
+    )
+    .then((res) => {
+      const cryptoItems: Item[] = res.data.map((c: any) => ({
+        id: c.id,
+        symbol: c.symbol.toUpperCase(),
+        name: c.name,
+        type: "crypto",
+        image: c.image,
+      }));
 
-        const combined = [...fiatList, ...cryptoItems];
-        setAllCoins(combined);
+      const combined = [...fiatList, ...cryptoItems];
+      setAllCoins(combined);
 
-        setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || null);
-        setToCoin(fiatList.find((f) => f.symbol === "USD") || null);
-      })
-      .catch(console.error);
+      setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || null);
+      setToCoin(fiatList.find((f) => f.symbol === "USD") || null);
+    })
+    .catch(console.error);
   }, []);
 
-  /* ------------------------------- */
-  /* Filter search list */
-  /* ------------------------------- */
+  /* ------------------------------------------------------ */
+  /* Search filter */
+  /* ------------------------------------------------------ */
   useEffect(() => {
     if (!search) {
       setFiltered(allCoins);
       return;
     }
 
-    const s = search.toLowerCase();
+    const q = search.toLowerCase();
     setFiltered(
       allCoins.filter(
         (c) =>
-          c.name.toLowerCase().includes(s) ||
-          c.symbol.toLowerCase().includes(s)
+          c.name.toLowerCase().includes(q) ||
+          c.symbol.toLowerCase().includes(q)
       )
     );
   }, [search, allCoins]);
 
-  /* ------------------------------- */
-  /* Numeric-only validation */
-  /* ------------------------------- */
-  const handleAmountChange = (value: string) => {
-    if (/^[0-9]*\.?[0-9]*$/.test(value)) {
-      setAmount(value);
-      setIsInvalid(!value || Number(value) <= 0);
+  /* ------------------------------------------------------ */
+  /* Numeric input validation */
+  /* ------------------------------------------------------ */
+  const handleAmount = (v: string) => {
+    if (/^[0-9]*\.?[0-9]*$/.test(v)) {
+      setAmount(v);
+      setIsInvalid(!v || Number(v) <= 0);
     }
   };
 
-  /* ------------------------------- */
-  /* Calculate conversion */
-  /* ------------------------------- */
-  useEffect(() => {
+  /* ------------------------------------------------------ */
+  /* Fetch price function (called manually + by timer) */
+  /* ------------------------------------------------------ */
+  const refreshPrice = async () => {
     if (!fromCoin || !toCoin || !amount || Number(amount) <= 0) {
       setResult(null);
       return;
     }
 
-    const fetchRate = async () => {
-      const res = await axios.get(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${fromCoin.id},${toCoin.id}&vs_currencies=usd`
-      );
+    const res = await axios.get(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${fromCoin.id},${toCoin.id}&vs_currencies=usd`
+    );
 
-      const fromUSD = res.data[fromCoin.id]?.usd;
-      const toUSD = res.data[toCoin.id]?.usd;
+    const fromUSD = res.data[fromCoin.id]?.usd;
+    const toUSD = res.data[toCoin.id]?.usd;
 
-      if (!fromUSD || !toUSD) return;
+    if (!fromUSD || !toUSD) return;
 
-      const value = (Number(amount) * fromUSD) / toUSD;
-      setResult(value);
-    };
+    const value = (Number(amount) * fromUSD) / toUSD;
+    setResult(value);
+  };
 
-    fetchRate();
+  /* ------------------------------------------------------ */
+  /* Auto refresh every 10 seconds */
+  /* ------------------------------------------------------ */
+  useEffect(() => {
+    refreshPrice();
+    const interval = setInterval(() => refreshPrice(), 10000);
+    return () => clearInterval(interval);
   }, [fromCoin, toCoin, amount]);
 
-  /* ------------------------------- */
-  /* Apply dropdown selection */
-  /* ------------------------------- */
+  /* ------------------------------------------------------ */
+  /* Dropdown selection */
+  /* ------------------------------------------------------ */
   const applySelection = (coin: Item, side: "from" | "to") => {
     if (side === "from") setFromCoin(coin);
     else setToCoin(coin);
@@ -141,9 +145,9 @@ export default function Page() {
     setSearch("");
   };
 
-  /* ------------------------------- */
-  /* Swap coins */
-  /* ------------------------------- */
+  /* ------------------------------------------------------ */
+  /* Swap */
+  /* ------------------------------------------------------ */
   const swapCoins = () => {
     if (!fromCoin || !toCoin) return;
     const temp = fromCoin;
@@ -151,17 +155,19 @@ export default function Page() {
     setToCoin(temp);
   };
 
-  /* ------------------------------- */
-  /* Render UI */
-  /* ------------------------------- */
+  const sameCoin = fromCoin?.id === toCoin?.id;
+
+  /* ------------------------------------------------------ */
+  /* UI */
+  /* ------------------------------------------------------ */
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
-      {/* AMOUNT */}
+
       <h3>AMOUNT</h3>
       <input
         value={amount}
-        onChange={(e) => handleAmountChange(e.target.value)}
+        onChange={(e) => handleAmount(e.target.value)}
         style={{
           width: "420px",
           padding: "18px",
@@ -179,11 +185,12 @@ export default function Page() {
       )}
 
       <div style={{ display: "flex", gap: "26px", alignItems: "center" }}>
+        
         {/* FROM */}
         <div style={{ position: "relative" }}>
           <h3>FROM</h3>
           <div
-            className="selector-box"
+            className={`selector-box ${sameCoin ? "selector-disabled" : ""}`}
             onClick={() =>
               setOpenDropdown(openDropdown === "from" ? null : "from")
             }
@@ -225,16 +232,14 @@ export default function Page() {
 
         {/* SWAP */}
         <div className="swap-circle" onClick={swapCoins}>
-          <div className="swap-icon">
-            <span></span>
-          </div>
+          <div className="swap-icon"></div>
         </div>
 
         {/* TO */}
         <div style={{ position: "relative" }}>
           <h3>TO</h3>
           <div
-            className="selector-box"
+            className={`selector-box ${sameCoin ? "selector-disabled" : ""}`}
             onClick={() =>
               setOpenDropdown(openDropdown === "to" ? null : "to")
             }
@@ -273,13 +278,14 @@ export default function Page() {
             </div>
           )}
         </div>
+
       </div>
 
       {/* RESULT */}
-      {result !== null && fromCoin && toCoin && !isInvalid && (
+      {result !== null && !sameCoin && !isInvalid && (
         <div style={{ textAlign: "center", marginTop: "40px" }}>
           <div style={{ fontSize: "22px", opacity: 0.7 }}>
-            {`1 ${fromCoin.symbol} → ${toCoin.symbol}`}
+            {`1 ${fromCoin?.symbol} → ${toCoin?.symbol}`}
           </div>
 
           <div
@@ -289,7 +295,7 @@ export default function Page() {
               marginTop: "10px",
             }}
           >
-            {result.toFixed(4)} {toCoin.symbol}
+            {result.toFixed(4)} {toCoin?.symbol}
           </div>
 
           <div
@@ -299,14 +305,14 @@ export default function Page() {
               fontSize: "22px",
             }}
           >
-            {`1 ${fromCoin.symbol} = ${(result / Number(amount)).toFixed(
+            {`1 ${fromCoin?.symbol} = ${(result / Number(amount)).toFixed(
               6
-            )} ${toCoin.symbol}`}
+            )} ${toCoin?.symbol}`}
             <br />
-            {`1 ${toCoin.symbol} = ${(
+            {`1 ${toCoin?.symbol} = ${(
               1 /
               (result / Number(amount))
-            ).toFixed(6)} ${fromCoin.symbol}`}
+            ).toFixed(6)} ${fromCoin?.symbol}`}
           </div>
         </div>
       )}
