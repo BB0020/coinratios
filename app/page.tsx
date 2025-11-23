@@ -37,7 +37,7 @@ export default function Home() {
   const [ratio, setRatio] = useState<number | null>(null);
   const [chartData, setChartData] = useState<any>(null);
 
-  // Load top 250 coins
+  // Load coin list
   useEffect(() => {
     axios
       .get(
