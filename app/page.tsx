@@ -1,316 +1,275 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
-import { Line } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  LineElement,
-  PointElement,
-  LinearScale,
-  CategoryScale,
-  Tooltip,
-  Legend,
-} from "chart.js";
 
-ChartJS.register(
-  LineElement,
-  PointElement,
-  LinearScale,
-  CategoryScale,
-  Tooltip,
-  Legend
-);
-
-interface Coin {
+/* ------------------------------------------------------ */
+/* Types */
+/* ------------------------------------------------------ */
+interface Currency {
   id: string;
   symbol: string;
   name: string;
   image: string;
+  isFiat?: boolean;
 }
 
-// Fiat preset list
-const fiats = [
-  {
-    id: "usd",
-    symbol: "usd",
-    name: "US Dollar",
-    image: "https://flagcdn.com/us.svg",
-  },
-  {
-    id: "eur",
-    symbol: "eur",
-    name: "Euro",
-    image: "https://flagcdn.com/eu.svg",
-  },
-  {
-    id: "gbp",
-    symbol: "gbp",
-    name: "British Pound",
-    image: "https://flagcdn.com/gb.svg",
-  },
-  {
-    id: "cad",
-    symbol: "cad",
-    name: "Canadian Dollar",
-    image: "https://flagcdn.com/ca.svg",
-  },
-  {
-    id: "aud",
-    symbol: "aud",
-    name: "Australian Dollar",
-    image: "https://flagcdn.com/au.svg",
-  },
+/* ------------------------------------------------------ */
+/* Fiat Currency List */
+/* ------------------------------------------------------ */
+const FIAT: Currency[] = [
+  { id: "usd", symbol: "USD", name: "US Dollar", image: "/flags/us.svg", isFiat: true },
+  { id: "eur", symbol: "EUR", name: "Euro", image: "/flags/eu.svg", isFiat: true },
+  { id: "gbp", symbol: "GBP", name: "British Pound", image: "/flags/gb.svg", isFiat: true },
+  { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "/flags/ca.svg", isFiat: true },
+  { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "/flags/au.svg", isFiat: true },
 ];
 
+/* ------------------------------------------------------ */
+/* Component */
+/* ------------------------------------------------------ */
 export default function Home() {
-  const [coins, setCoins] = useState<Coin[]>([]);
-  const [searchA, setSearchA] = useState("");
-  const [searchB, setSearchB] = useState("");
+  const [cryptoList, setCryptoList] = useState<Currency[]>([]);
+  const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
 
-  const [amount, setAmount] = useState<number>(1);
+  const [amount, setAmount] = useState("1");
 
-  const [coinA, setCoinA] = useState<Coin | null>({
-    id: "bitcoin",
-    symbol: "btc",
-    name: "Bitcoin",
-    image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
-  });
+  const [from, setFrom] = useState<Currency | null>(null);
+  const [to, setTo] = useState<Currency | null>(null);
 
-  const [coinB, setCoinB] = useState<Coin | null>({
-    id: "usd",
-    symbol: "usd",
-    name: "US Dollar",
-    image: "https://flagcdn.com/us.svg",
-  });
+  const [searchFrom, setSearchFrom] = useState("");
+  const [searchTo, setSearchTo] = useState("");
 
-  const [ratio, setRatio] = useState<number | null>(null);
-  const [chartData, setChartData] = useState<any>(null);
+  const [result, setResult] = useState<number | null>(null);
+  const [inverse, setInverse] = useState<number | null>(null);
 
-  // Load top 250 crypto coins on mount
+  /* ------------------------------------------------------ */
+  /* Load Crypto List */
+  /* ------------------------------------------------------ */
   useEffect(() => {
     axios
       .get(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
+        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1"
       )
-      .then((res) => setCoins([...fiats, ...res.data]))
+      .then((res) => {
+        setCryptoList(
+          res.data.map((c: any) => ({
+            id: c.id,
+            symbol: c.symbol.toUpperCase(),
+            name: c.name,
+            image: c.image,
+          }))
+        );
+      })
       .catch(console.error);
   }, []);
 
-  // CALCULATE RATIO — also updates whenever amount changes
+  /* ------------------------------------------------------ */
+  /* Set Default Values Once List Loads */
+  /* ------------------------------------------------------ */
   useEffect(() => {
-    if (!coinA || !coinB) return;
+    if (cryptoList.length > 0 && !from && !to) {
+      const btc = cryptoList.find((x) => x.symbol === "BTC");
+      const usd = FIAT.find((x) => x.symbol === "USD");
 
-    axios
-      .get(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinA.id}&vs_currencies=${coinB.id}`
-      )
-      .then((res) => {
-        const value = res.data?.[coinA.id]?.[coinB.id];
-
-        if (value !== undefined && value !== null) {
-          setRatio(value);
-        }
-      });
-  }, [coinA, coinB, amount]); // ← FIXED
-
-  // Load 1-year price ratio chart
-  useEffect(() => {
-    if (!coinA || !coinB) return;
-
-    const load = async () => {
-      try {
-        const a = await axios.get(
-          `https://api.coingecko.com/api/v3/coins/${coinA.id}/market_chart?vs_currency=usd&days=365`
-        );
-        const b = await axios.get(
-          `https://api.coingecko.com/api/v3/coins/${coinB.id}/market_chart?vs_currency=usd&days=365`
-        );
-
-        const merged = a.data.prices.map((pA: any, i: number) => ({
-          time: pA[0],
-          ratio: pA[1] / b.data.prices[i][1],
-        }));
-
-        setChartData({
-          labels: merged.map((m: any) =>
-            new Date(m.time).toLocaleDateString()
-          ),
-          datasets: [
-            {
-              label: `${coinA.symbol.toUpperCase()} / ${coinB.symbol.toUpperCase()}`,
-              data: merged.map((m: any) => m.ratio),
-              borderColor: "#3b82f6",
-              backgroundColor: "rgba(59,130,246,0.1)",
-              borderWidth: 2,
-              pointRadius: 0,
-              tension: 0.25,
-            },
-          ],
-        });
-      } catch (err) {
-        console.error(err);
+      if (btc && usd) {
+        setFrom(btc);
+        setTo(usd);
       }
+    }
+  }, [cryptoList]);
+
+  /* ------------------------------------------------------ */
+  /* Calculate Conversion */
+  /* ------------------------------------------------------ */
+  useEffect(() => {
+    if (!from || !to || !amount) return;
+
+    const amt = Number(amount);
+    if (isNaN(amt) || amt <= 0) {
+      setResult(null);
+      return;
+    }
+
+    const fetchPrices = async () => {
+      const ids = [from.id, to.id].join(",");
+
+      const res = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
+      );
+
+      const priceFrom = res.data[from.id]?.usd;
+      const priceTo = res.data[to.id]?.usd;
+
+      if (!priceFrom || !priceTo) return;
+
+      const ratio = (priceFrom / priceTo) * amt;
+      const reverseRatio = priceTo / priceFrom;
+
+      setResult(ratio);
+      setInverse(reverseRatio);
     };
 
-    load();
-  }, [coinA, coinB]);
+    fetchPrices();
+  }, [from, to, amount]);
 
-  const filteredA = coins.filter((c) =>
-    `${c.name} ${c.symbol}`
-      .toLowerCase()
-      .includes(searchA.toLowerCase())
+  /* ------------------------------------------------------ */
+  /* Filtering */
+  /* ------------------------------------------------------ */
+  const allCurrencies = [...FIAT, ...cryptoList];
+
+  const filteredFrom = allCurrencies.filter((c) =>
+    `${c.symbol} ${c.name}`.toLowerCase().includes(searchFrom.toLowerCase())
   );
 
-  const filteredB = coins.filter((c) =>
-    `${c.name} ${c.symbol}`
-      .toLowerCase()
-      .includes(searchB.toLowerCase())
+  const filteredTo = allCurrencies.filter((c) =>
+    `${c.symbol} ${c.name}`.toLowerCase().includes(searchTo.toLowerCase())
   );
 
-  const swapCoins = () => {
-    const temp = coinA;
-    setCoinA(coinB);
-    setCoinB(temp);
+  /* ------------------------------------------------------ */
+  /* Swap */
+  /* ------------------------------------------------------ */
+  const swap = () => {
+    const a = from;
+    const b = to;
+    setFrom(b);
+    setTo(a);
   };
 
+  /* ------------------------------------------------------ */
+  /* UI */
+/* ------------------------------------------------------ */
   return (
-    <div style={{ padding: 40, maxWidth: 1100, margin: "0 auto" }}>
-      {/* AMOUNT */}
-      <div className="card" style={{ marginBottom: 30 }}>
-        <div className="label">Amount</div>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: 40 }}>
+      
+      {/* Amount */}
+      <div style={{ marginBottom: 25 }}>
+        <label>Amount</label>
         <input
           className="amount-input"
-          type="number"
           value={amount}
-          min="0"
-          onChange={(e) => setAmount(Number(e.target.value))}
-          placeholder="Enter amount..."
+          onChange={(e) => setAmount(e.target.value)}
         />
-        {(!amount || amount <= 0) && (
-          <div className="amount-error">
+        {(!amount || Number(amount) <= 0) && (
+          <div className="amount-warning">
             Amount needs to be a number and greater than 0.
           </div>
         )}
       </div>
 
-      {/* COIN SELECTORS */}
-      <div style={{ display: "flex", gap: 20 }}>
+      <div style={{ display: "flex", gap: 30, alignItems: "center" }}>
+        
         {/* FROM */}
-        <div className="select-card">
-          <div className="label">FROM</div>
+        <div style={{ flex: 1 }}>
+          <label>FROM</label>
 
-          <div className="selected-coin">
-            <img src={coinA?.image} width={36} height={36} />
-            <div>
-              <div className="coin-symbol">{coinA?.symbol.toUpperCase()}</div>
-              <div className="coin-name">{coinA?.name}</div>
-            </div>
+          <div
+            className="card-coin"
+            onClick={() => setOpenDropdown(openDropdown === "from" ? null : "from")}
+          >
+            {from && (
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <img src={from.image} width={32} height={32} />
+                <div style={{ marginLeft: 12 }}>
+                  <div style={{ fontWeight: 600 }}>{from.symbol}</div>
+                  <div style={{ opacity: 0.7 }}>{from.name}</div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <input
-            className="search-input"
-            placeholder="Search all..."
-            value={searchA}
-            onChange={(e) => setSearchA(e.target.value)}
-          />
+          <div className={`dropdown-panel ${openDropdown === "from" ? "open" : ""}`}>
+            <input
+              className="dropdown-search"
+              placeholder="Search all..."
+              value={searchFrom}
+              onChange={(e) => setSearchFrom(e.target.value)}
+            />
 
-          <div className="coin-list">
-            {filteredA.map((coin) => (
+            {filteredFrom.map((c) => (
               <div
-                key={coin.id}
-                className={`coin-item ${
-                  coinA?.id === coin.id ? "selected" : ""
-                }`}
+                key={c.id}
+                className="dropdown-item"
                 onClick={() => {
-                  setCoinA(coin);
-                  setSearchA("");
+                  setFrom(c);
+                  setOpenDropdown(null);
+                  setSearchFrom("");
                 }}
               >
-                <img src={coin.image} width={32} height={32} />
-                <div style={{ marginLeft: 10 }}>
-                  <div className="coin-symbol">{coin.symbol.toUpperCase()}</div>
-                  <div className="coin-name">{coin.name}</div>
-                </div>
+                <img src={c.image} />
+                <span className="dropdown-item-symbol">{c.symbol}</span>
+                <span className="dropdown-item-name">{c.name}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* SWAP BUTTON */}
-        <div className="swap-container">
-          <button className="swap-button" onClick={swapCoins}>
-            ⇆
-          </button>
+        {/* Swap Button */}
+        <div className="swap-btn" onClick={swap}>
+          <img src="/swap.svg" />
         </div>
 
         {/* TO */}
-        <div className="select-card">
-          <div className="label">TO</div>
+        <div style={{ flex: 1 }}>
+          <label>TO</label>
 
-          <div className="selected-coin">
-            <img src={coinB?.image} width={36} height={36} />
-            <div>
-              <div className="coin-symbol">{coinB?.symbol.toUpperCase()}</div>
-              <div className="coin-name">{coinB?.name}</div>
-            </div>
+          <div
+            className="card-coin"
+            onClick={() => setOpenDropdown(openDropdown === "to" ? null : "to")}
+          >
+            {to && (
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <img src={to.image} width={32} height={32} />
+                <div style={{ marginLeft: 12 }}>
+                  <div style={{ fontWeight: 600 }}>{to.symbol}</div>
+                  <div style={{ opacity: 0.7 }}>{to.name}</div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <input
-            className="search-input"
-            placeholder="Search all..."
-            value={searchB}
-            onChange={(e) => setSearchB(e.target.value)}
-          />
+          <div className={`dropdown-panel ${openDropdown === "to" ? "open" : ""}`}>
+            <input
+              className="dropdown-search"
+              placeholder="Search all..."
+              value={searchTo}
+              onChange={(e) => setSearchTo(e.target.value)}
+            />
 
-          <div className="coin-list">
-            {filteredB.map((coin) => (
+            {filteredTo.map((c) => (
               <div
-                key={coin.id}
-                className={`coin-item ${
-                  coinB?.id === coin.id ? "selected" : ""
-                }`}
+                key={c.id}
+                className="dropdown-item"
                 onClick={() => {
-                  setCoinB(coin);
-                  setSearchB("");
+                  setTo(c);
+                  setOpenDropdown(null);
+                  setSearchTo("");
                 }}
               >
-                <img src={coin.image} width={32} height={32} />
-                <div style={{ marginLeft: 10 }}>
-                  <div className="coin-symbol">{coin.symbol.toUpperCase()}</div>
-                  <div className="coin-name">{coin.name}</div>
-                </div>
+                <img src={c.image} />
+                <span className="dropdown-item-symbol">{c.symbol}</span>
+                <span className="dropdown-item-name">{c.name}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* RESULT DISPLAY */}
-      {ratio !== null && amount > 0 && (
-        <div style={{ textAlign: "center", marginTop: 40 }}>
-          <div className="ratio-label">
-            1 {coinA?.symbol.toUpperCase()} → {coinB?.symbol.toUpperCase()}
+      {/* Result */}
+      {result !== null && (
+        <div style={{ marginTop: 60, textAlign: "center" }}>
+          <div style={{ fontSize: 18, opacity: 0.7 }}>
+            1 {from?.symbol} → {to?.symbol}
+          </div>
+          <div style={{ fontSize: 60, fontWeight: 700 }}>
+            {result.toFixed(6)} {to?.symbol}
           </div>
 
-          <div className="ratio-value">
-            {(ratio * amount).toFixed(6)} {coinB?.symbol.toUpperCase()}
-          </div>
-
-          <div className="sub-info">
-            1 {coinA?.symbol.toUpperCase()} = {ratio.toFixed(6)}{" "}
-            {coinB?.symbol.toUpperCase()}
+          <div style={{ marginTop: 10, opacity: 0.7 }}>
+            1 {from?.symbol} = {inverse?.toFixed(6)} {to?.symbol}
             <br />
-            1 {coinB?.symbol.toUpperCase()} = {(1 / ratio).toFixed(6)}{" "}
-            {coinA?.symbol.toUpperCase()}
+            1 {to?.symbol} = {(1 / inverse!).toFixed(6)} {from?.symbol}
           </div>
-        </div>
-      )}
-
-      {/* CHART */}
-      {chartData && (
-        <div className="chart-container">
-          <Line data={chartData} />
         </div>
       )}
     </div>
