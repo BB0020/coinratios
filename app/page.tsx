@@ -20,6 +20,7 @@ const fiatList: Item[] = [
 ];
 
 export default function Page() {
+
   const [allCoins, setAllCoins] = useState<Item[]>([]);
   const [filtered, setFiltered] = useState<Item[]>([]);
   const [search, setSearch] = useState("");
@@ -34,7 +35,7 @@ export default function Page() {
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  /* Close dropdown */
+  /* Close dropdown on outside click */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
@@ -44,6 +45,7 @@ export default function Page() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
 
   /* Load crypto list */
   useEffect(() => {
@@ -68,7 +70,8 @@ export default function Page() {
     .catch(console.error);
   }, []);
 
-  /* Filter list */
+
+  /* Filter dropdown results */
   useEffect(() => {
     if (!search) {
       setFiltered(allCoins);
@@ -84,7 +87,8 @@ export default function Page() {
     );
   }, [search, allCoins]);
 
-  /* Numeric input validation */
+
+  /* Numeric validation */
   const handleAmount = (v: string) => {
     if (/^[0-9]*\.?[0-9]*$/.test(v)) {
       setAmount(v);
@@ -94,8 +98,9 @@ export default function Page() {
 
 
   /* =========================================================================
-     SMART UNIFIED RATE FUNCTION — FIXES ALL NaN PROBLEMS
+     FINAL — CORRECT, ZERO-NaN CONVERSION ENGINE
      ========================================================================= */
+
   const fetchRate = async () => {
     if (!fromCoin || !toCoin) return;
     if (isInvalid || Number(amount) <= 0) {
@@ -106,89 +111,97 @@ export default function Page() {
     const from = fromCoin;
     const to = toCoin;
 
-    /* -------------------- 1. Fiat → Fiat --------------------- */
+    /* ---------------------- 1. FIAT → FIAT ---------------------- */
     if (from.type === "fiat" && to.type === "fiat") {
       const fx = await axios.get(
-        `https://api.exchangerate.host/convert?from=${from.symbol}&to=${to.symbol}`
+        `https://api.frankfurter.app/latest?from=${from.symbol}&to=${to.symbol}`
       );
-      setResult(Number(amount) * fx.data.result);
+
+      const rate = fx.data?.rates?.[to.symbol];
+      if (!rate) return setResult(null);
+
+      setResult(Number(amount) * rate);
       return;
     }
 
-    /* -------------------- 2. Crypto → USD --------------------- */
+    /* ---------------------- 2. CRYPTO → USD --------------------- */
     if (from.type === "crypto" && to.symbol === "USD") {
       const cg = await axios.get(
         `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`
       );
-      const price = cg.data[from.id]?.usd;
+
+      const price = cg.data?.[from.id]?.usd;
       if (!price) return setResult(null);
+
       setResult(Number(amount) * price);
       return;
     }
 
-    /* -------------------- 3. USD → Crypto --------------------- */
+    /* ---------------------- 3. USD → CRYPTO --------------------- */
     if (from.symbol === "USD" && to.type === "crypto") {
-      // 1) USD → USD (trivial = 1)
-      const usdToUSD = 1;
+      // 1 USD = 1 USD
+      const usdAmount = Number(amount);
 
-      // 2) USD price of crypto (CoinGecko)
+      // Coin price in USD
       const cg = await axios.get(
         `https://api.coingecko.com/api/v3/simple/price?ids=${to.id}&vs_currencies=usd`
       );
-      const cryptoUSD = cg.data[to.id]?.usd;
+
+      const cryptoUSD = cg.data?.[to.id]?.usd;
       if (!cryptoUSD) return setResult(null);
 
-      // USD amount divided by USD price of crypto
-      setResult(Number(amount) / cryptoUSD);
+      setResult(usdAmount / cryptoUSD);
       return;
     }
 
-    /* -------------------- 4. Crypto → Fiat (non-USD) ---------- */
+    /* ---------------------- 4. CRYPTO → FIAT -------------------- */
     if (from.type === "crypto" && to.type === "fiat") {
-      // 1) Crypto → USD
+      // Crypto price in USD
       const cg = await axios.get(
         `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`
       );
-      const cryptoUSD = cg.data[from.id]?.usd;
+      const cryptoUSD = cg.data?.[from.id]?.usd;
       if (!cryptoUSD) return setResult(null);
 
-      // 2) USD → target fiat
+      // USD → target fiat
       const fx = await axios.get(
-        `https://api.exchangerate.host/convert?from=USD&to=${to.symbol}`
+        `https://api.frankfurter.app/latest?from=USD&to=${to.symbol}`
       );
-      const usdToFiat = fx.data.result;
+      const usdToFiat = fx.data?.rates?.[to.symbol];
+      if (!usdToFiat) return setResult(null);
 
       setResult(Number(amount) * cryptoUSD * usdToFiat);
       return;
     }
 
-    /* -------------------- 5. Fiat → Crypto -------------------- */
+    /* ---------------------- 5. FIAT → CRYPTO -------------------- */
     if (from.type === "fiat" && to.type === "crypto") {
-      // 1) Fiat → USD
+      // fiat → USD
       const fx = await axios.get(
-        `https://api.exchangerate.host/convert?from=${from.symbol}&to=USD`
+        `https://api.frankfurter.app/latest?from=${from.symbol}&to=USD`
       );
-      const fiatToUSD = fx.data.result;
+      const fiatToUSD = fx.data?.rates?.USD;
+      if (!fiatToUSD) return setResult(null);
 
-      // 2) USD → Crypto (CoinGecko)
+      // crypto price in USD
       const cg = await axios.get(
         `https://api.coingecko.com/api/v3/simple/price?ids=${to.id}&vs_currencies=usd`
       );
-      const cryptoUSD = cg.data[to.id]?.usd;
+      const cryptoUSD = cg.data?.[to.id]?.usd;
+      if (!cryptoUSD) return setResult(null);
 
       setResult((Number(amount) * fiatToUSD) / cryptoUSD);
       return;
     }
 
-    /* -------------------- 6. Crypto → Crypto ------------------ */
+    /* ---------------------- 6. CRYPTO → CRYPTO ------------------ */
     if (from.type === "crypto" && to.type === "crypto") {
       const cg = await axios.get(
         `https://api.coingecko.com/api/v3/simple/price?ids=${from.id},${to.id}&vs_currencies=usd`
       );
 
-      const fromUSD = cg.data[from.id]?.usd;
-      const toUSD = cg.data[to.id]?.usd;
-
+      const fromUSD = cg.data?.[from.id]?.usd;
+      const toUSD   = cg.data?.[to.id]?.usd;
       if (!fromUSD || !toUSD) return setResult(null);
 
       setResult((Number(amount) * fromUSD) / toUSD);
@@ -196,7 +209,8 @@ export default function Page() {
     }
   };
 
-  /* Auto-refresh every 10s */
+
+  /* Auto-refresh every 10sec */
   useEffect(() => {
     fetchRate();
     const timer = setInterval(fetchRate, 10000);
@@ -204,7 +218,7 @@ export default function Page() {
   }, [fromCoin, toCoin, amount]);
 
 
-  /* Clicking a dropdown row */
+  /* Dropdown selection */
   const applySelection = (coin: Item, side: "from" | "to") => {
     if (side === "from") setFromCoin(coin);
     else setToCoin(coin);
@@ -213,15 +227,17 @@ export default function Page() {
     setSearch("");
   };
 
+
+  /* Swap button */
   const swapCoins = () => {
     if (!fromCoin || !toCoin) return;
-    const temp = fromCoin;
+    const tmp = fromCoin;
     setFromCoin(toCoin);
-    setToCoin(temp);
+    setToCoin(tmp);
   };
 
 
-  /* ---------------- UI ------------------ */
+  /* ======================== UI ========================== */
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
@@ -241,12 +257,12 @@ export default function Page() {
           marginBottom: "6px",
         }}
       />
+
       {isInvalid && (
         <div style={{ color: "red", fontSize: "14px", marginBottom: "20px" }}>
           Enter a Number Greater than 0
         </div>
       )}
-
 
       <div style={{ display: "flex", gap: "26px", alignItems: "center" }}>
 
@@ -282,13 +298,10 @@ export default function Page() {
 
               {filtered.map((coin) => {
                 const disabled = toCoin?.id === coin.id;
-
                 return (
                   <div
                     key={coin.id}
-                    className={
-                      "dropdown-row " + (disabled ? "dropdown-disabled" : "")
-                    }
+                    className={"dropdown-row " + (disabled ? "dropdown-disabled" : "")}
                     onClick={() => !disabled && applySelection(coin, "from")}
                   >
                     <img className="dropdown-flag" src={coin.image} />
@@ -301,12 +314,10 @@ export default function Page() {
           )}
         </div>
 
-
-        {/* SWAP */}
+        {/* SWAP ICON */}
         <div className="swap-circle" onClick={swapCoins}>
           <div className="swap-icon"></div>
         </div>
-
 
         {/* TO */}
         <div style={{ position: "relative" }}>
@@ -340,13 +351,10 @@ export default function Page() {
 
               {filtered.map((coin) => {
                 const disabled = fromCoin?.id === coin.id;
-
                 return (
                   <div
                     key={coin.id}
-                    className={
-                      "dropdown-row " + (disabled ? "dropdown-disabled" : "")
-                    }
+                    className={"dropdown-row " + (disabled ? "dropdown-disabled" : "")}
                     onClick={() => !disabled && applySelection(coin, "to")}
                   >
                     <img className="dropdown-flag" src={coin.image} />
@@ -386,14 +394,11 @@ export default function Page() {
               fontSize: "22px",
             }}
           >
-            {`1 ${fromCoin.symbol} = ${(result / Number(amount)).toFixed(
-              6
-            )} ${toCoin.symbol}`}
+            {`1 ${fromCoin.symbol} = ${(result /
+              Number(amount)).toFixed(6)} ${toCoin.symbol}`}
             <br />
-            {`1 ${toCoin.symbol} = ${(
-              1 /
-              (result / Number(amount))
-            ).toFixed(6)} ${fromCoin.symbol}`}
+            {`1 ${toCoin.symbol} = ${(1 /
+              (result / Number(amount))).toFixed(6)} ${fromCoin.symbol}`}
           </div>
         </div>
       )}
