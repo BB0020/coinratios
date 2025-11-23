@@ -36,48 +36,42 @@ export default function Page() {
 
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  /* ------------------------------------------------------ */
-  /* Close dropdown on outside click */
-  /* ------------------------------------------------------ */
+  /* Close dropdown */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpenDropdown(null);
       }
     };
-
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  /* ------------------------------------------------------ */
   /* Load coins */
-  /* ------------------------------------------------------ */
   useEffect(() => {
-    axios.get(
-      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=120&page=1"
-    )
-    .then((res) => {
-      const cryptoItems: Item[] = res.data.map((c: any) => ({
-        id: c.id,
-        symbol: c.symbol.toUpperCase(),
-        name: c.name,
-        type: "crypto",
-        image: c.image,
-      }));
+    axios
+      .get(
+        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=120&page=1"
+      )
+      .then((res) => {
+        const cryptoItems: Item[] = res.data.map((c: any) => ({
+          id: c.id,
+          symbol: c.symbol.toUpperCase(),
+          name: c.name,
+          type: "crypto",
+          image: c.image,
+        }));
 
-      const combined = [...fiatList, ...cryptoItems];
-      setAllCoins(combined);
+        const combined = [...fiatList, ...cryptoItems];
+        setAllCoins(combined);
 
-      setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || null);
-      setToCoin(fiatList.find((f) => f.symbol === "USD") || null);
-    })
-    .catch(console.error);
+        setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || null);
+        setToCoin(fiatList.find((f) => f.symbol === "USD") || null);
+      })
+      .catch(console.error);
   }, []);
 
-  /* ------------------------------------------------------ */
-  /* Search filter */
-  /* ------------------------------------------------------ */
+  /* Filter search */
   useEffect(() => {
     if (!search) {
       setFiltered(allCoins);
@@ -94,9 +88,7 @@ export default function Page() {
     );
   }, [search, allCoins]);
 
-  /* ------------------------------------------------------ */
-  /* Numeric input validation */
-  /* ------------------------------------------------------ */
+  /* Numeric input */
   const handleAmount = (v: string) => {
     if (/^[0-9]*\.?[0-9]*$/.test(v)) {
       setAmount(v);
@@ -104,9 +96,7 @@ export default function Page() {
     }
   };
 
-  /* ------------------------------------------------------ */
-  /* Fetch price function (called manually + by timer) */
-  /* ------------------------------------------------------ */
+  /* Fetch price */
   const refreshPrice = async () => {
     if (!fromCoin || !toCoin || !amount || Number(amount) <= 0) {
       setResult(null);
@@ -119,25 +109,18 @@ export default function Page() {
 
     const fromUSD = res.data[fromCoin.id]?.usd;
     const toUSD = res.data[toCoin.id]?.usd;
-
     if (!fromUSD || !toUSD) return;
 
-    const value = (Number(amount) * fromUSD) / toUSD;
-    setResult(value);
+    setResult((Number(amount) * fromUSD) / toUSD);
   };
 
-  /* ------------------------------------------------------ */
-  /* Auto refresh every 10 seconds */
-  /* ------------------------------------------------------ */
+  /* Auto-refresh every 10s */
   useEffect(() => {
     refreshPrice();
     const interval = setInterval(() => refreshPrice(), 10000);
     return () => clearInterval(interval);
   }, [fromCoin, toCoin, amount]);
 
-  /* ------------------------------------------------------ */
-  /* Dropdown selection */
-  /* ------------------------------------------------------ */
   const applySelection = (coin: Item, side: "from" | "to") => {
     if (side === "from") setFromCoin(coin);
     else setToCoin(coin);
@@ -145,21 +128,12 @@ export default function Page() {
     setSearch("");
   };
 
-  /* ------------------------------------------------------ */
-  /* Swap */
-  /* ------------------------------------------------------ */
   const swapCoins = () => {
     if (!fromCoin || !toCoin) return;
     const temp = fromCoin;
     setFromCoin(toCoin);
     setToCoin(temp);
   };
-
-  const sameCoin = fromCoin?.id === toCoin?.id;
-
-  /* ------------------------------------------------------ */
-  /* UI */
-  /* ------------------------------------------------------ */
 
   return (
     <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
@@ -185,12 +159,13 @@ export default function Page() {
       )}
 
       <div style={{ display: "flex", gap: "26px", alignItems: "center" }}>
-        
+
         {/* FROM */}
         <div style={{ position: "relative" }}>
           <h3>FROM</h3>
+
           <div
-            className={`selector-box ${sameCoin ? "selector-disabled" : ""}`}
+            className="selector-box"
             onClick={() =>
               setOpenDropdown(openDropdown === "from" ? null : "from")
             }
@@ -215,17 +190,24 @@ export default function Page() {
                 onChange={(e) => setSearch(e.target.value)}
               />
 
-              {filtered.map((coin) => (
-                <div
-                  key={coin.id}
-                  className="dropdown-row"
-                  onClick={() => applySelection(coin, "from")}
-                >
-                  <img className="dropdown-flag" src={coin.image} />
-                  <span className="dropdown-symbol">{coin.symbol}</span>
-                  {coin.name}
-                </div>
-              ))}
+              {filtered.map((coin) => {
+                const disabled = toCoin?.id === coin.id;
+                return (
+                  <div
+                    key={coin.id}
+                    className={
+                      "dropdown-row " + (disabled ? "dropdown-disabled" : "")
+                    }
+                    onClick={() =>
+                      !disabled && applySelection(coin, "from")
+                    }
+                  >
+                    <img className="dropdown-flag" src={coin.image} />
+                    <span className="dropdown-symbol">{coin.symbol}</span>
+                    {coin.name}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -238,8 +220,9 @@ export default function Page() {
         {/* TO */}
         <div style={{ position: "relative" }}>
           <h3>TO</h3>
+
           <div
-            className={`selector-box ${sameCoin ? "selector-disabled" : ""}`}
+            className="selector-box"
             onClick={() =>
               setOpenDropdown(openDropdown === "to" ? null : "to")
             }
@@ -264,28 +247,34 @@ export default function Page() {
                 onChange={(e) => setSearch(e.target.value)}
               />
 
-              {filtered.map((coin) => (
-                <div
-                  key={coin.id}
-                  className="dropdown-row"
-                  onClick={() => applySelection(coin, "to")}
-                >
-                  <img className="dropdown-flag" src={coin.image} />
-                  <span className="dropdown-symbol">{coin.symbol}</span>
-                  {coin.name}
-                </div>
-              ))}
+              {filtered.map((coin) => {
+                const disabled = fromCoin?.id === coin.id;
+                return (
+                  <div
+                    key={coin.id}
+                    className={
+                      "dropdown-row " + (disabled ? "dropdown-disabled" : "")
+                    }
+                    onClick={() =>
+                      !disabled && applySelection(coin, "to")
+                    }
+                  >
+                    <img className="dropdown-flag" src={coin.image} />
+                    <span className="dropdown-symbol">{coin.symbol}</span>
+                    {coin.name}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
-
       </div>
 
       {/* RESULT */}
-      {result !== null && !sameCoin && !isInvalid && (
+      {result !== null && !isInvalid && fromCoin && toCoin && (
         <div style={{ textAlign: "center", marginTop: "40px" }}>
           <div style={{ fontSize: "22px", opacity: 0.7 }}>
-            {`1 ${fromCoin?.symbol} → ${toCoin?.symbol}`}
+            {`1 ${fromCoin.symbol} → ${toCoin.symbol}`}
           </div>
 
           <div
@@ -295,7 +284,7 @@ export default function Page() {
               marginTop: "10px",
             }}
           >
-            {result.toFixed(4)} {toCoin?.symbol}
+            {result.toFixed(4)} {toCoin.symbol}
           </div>
 
           <div
@@ -305,14 +294,14 @@ export default function Page() {
               fontSize: "22px",
             }}
           >
-            {`1 ${fromCoin?.symbol} = ${(result / Number(amount)).toFixed(
+            {`1 ${fromCoin.symbol} = ${(result / Number(amount)).toFixed(
               6
-            )} ${toCoin?.symbol}`}
+            )} ${toCoin.symbol}`}
             <br />
-            {`1 ${toCoin?.symbol} = ${(
+            {`1 ${toCoin.symbol} = ${(
               1 /
               (result / Number(amount))
-            ).toFixed(6)} ${fromCoin?.symbol}`}
+            ).toFixed(6)} ${fromCoin.symbol}`}
           </div>
         </div>
       )}

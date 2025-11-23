@@ -8,6 +8,7 @@
   --card-bg: #ffffff;
   --card-border: #dcdcdc;
   --accent: #3b82f6;
+  --disabled: rgba(150,150,150,0.4);
 }
 
 html.dark {
@@ -16,6 +17,7 @@ html.dark {
   --card-bg: #1a1a1a;
   --card-border: #333;
   --accent: #4d9dff;
+  --disabled: rgba(255,255,255,0.3);
 }
 
 /* ------------------------------------------------------ */
@@ -36,7 +38,7 @@ h1, h2, h3 {
 }
 
 /* ------------------------------------------------------ */
-/* Swap Arrow (Pure CSS Curved) */
+/* Swap Arrow — Straight arrows stacked vertically */
 /* ------------------------------------------------------ */
 
 .swap-circle {
@@ -57,50 +59,44 @@ h1, h2, h3 {
 }
 
 .swap-icon {
-  position: relative;
   width: 28px;
   height: 28px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 0;
   transition: transform 0.35s ease;
 }
 
-/* Rotate on hover */
 .swap-circle:hover .swap-icon {
   transform: rotate(180deg);
 }
 
-/* Curved Arrow Above */
+/* Top arrow → */
 .swap-icon::before {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 0px;
-  width: 100%;
-  height: 10px;
-  border-top: 4px solid var(--text);
-  border-radius: 50%;
-  border-right: 4px solid transparent;
-  border-left: 4px solid transparent;
-  transform: rotate(180deg);
+  content: "→";
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--text);
+  text-align: center;
+  line-height: 12px;
 }
 
-/* Curved Arrow Below */
+/* Bottom arrow ← */
 .swap-icon::after {
-  content: "";
-  position: absolute;
-  bottom: 3px;
-  left: 0px;
-  width: 100%;
-  height: 10px;
-  border-bottom: 4px solid var(--text);
-  border-radius: 50%;
-  border-right: 4px solid transparent;
-  border-left: 4px solid transparent;
+  content: "←";
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--text);
+  text-align: center;
+  line-height: 12px;
 }
 
-/* Hover turns white */
+/* Hover arrows turn white */
 .swap-circle:hover .swap-icon::before,
 .swap-circle:hover .swap-icon::after {
-  border-color: white;
+  color: white;
 }
 
 /* ------------------------------------------------------ */
@@ -117,12 +113,6 @@ h1, h2, h3 {
   align-items: center;
   width: 420px;
   transition: opacity 0.2s;
-}
-
-/* Disabled when From = To */
-.selector-disabled {
-  opacity: 0.4;
-  pointer-events: none;
 }
 
 .selector-img {
@@ -190,4 +180,14 @@ h1, h2, h3 {
 .dropdown-symbol {
   font-weight: 600;
   margin-right: 6px;
+}
+
+/* Disabled dropdown item */
+.dropdown-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dropdown-disabled:hover {
+  background: transparent;
 }
