@@ -31,23 +31,20 @@ interface Coin {
 
 export default function Home() {
   const [coins, setCoins] = useState<Coin[]>([]);
-  const [search, setSearch] = useState("");
+  const [amount, setAmount] = useState("1.00");
   const [coinA, setCoinA] = useState<Coin | null>(null);
   const [coinB, setCoinB] = useState<Coin | null>(null);
+  const [showDropdown, setShowDropdown] = useState<"A" | "B" | null>(null);
   const [ratio, setRatio] = useState<number | null>(null);
-  const [chartData, setChartData] = useState<any>(null);
 
-  // Load coin list
   useEffect(() => {
     axios
       .get(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
+        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200"
       )
-      .then((res) => setCoins(res.data))
-      .catch(console.error);
+      .then((res) => setCoins(res.data));
   }, []);
 
-  // Load ratio
   useEffect(() => {
     if (!coinA || !coinB) return;
 
@@ -62,99 +59,143 @@ export default function Home() {
       });
   }, [coinA, coinB]);
 
-  // Load chart
-  useEffect(() => {
-    if (!coinA || !coinB) return;
+  const filteredCoins = (search: string) =>
+    coins.filter((c) =>
+      `${c.name} ${c.symbol}`.toLowerCase().includes(search.toLowerCase())
+    );
 
-    const load = async () => {
-      const a = await axios.get(
-        `https://api.coingecko.com/api/v3/coins/${coinA.id}/market_chart?vs_currency=usd&days=365`
-      );
-      const b = await axios.get(
-        `https://api.coingecko.com/api/v3/coins/${coinB.id}/market_chart?vs_currency=usd&days=365`
-      );
-
-      const merged = a.data.prices.map((pA: any, i: number) => ({
-        time: pA[0],
-        ratio: pA[1] / b.data.prices[i][1],
-      }));
-
-      setChartData({
-        labels: merged.map((m: any) =>
-          new Date(m.time).toLocaleDateString()
-        ),
-        datasets: [
-          {
-            label: `${coinA.symbol.toUpperCase()} / ${coinB.symbol.toUpperCase()}`,
-            data: merged.map((m: any) => m.ratio),
-            borderColor: "#3b82f6",
-            backgroundColor: "rgba(59,130,246,0.2)",
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0.25,
-          },
-        ],
-      });
-    };
-
-    load();
-  }, [coinA, coinB]);
-
-  const filtered = coins.filter((c) =>
-    `${c.name} ${c.symbol}`.toLowerCase().includes(search.toLowerCase())
-  );
+  // Swap coins
+  const swap = () => {
+    const oldA = coinA;
+    setCoinA(coinB);
+    setCoinB(oldA);
+  };
 
   return (
-    <div style={{ padding: 40, maxWidth: 900, margin: "0 auto" }}>
-      <h1 style={{ marginBottom: 24 }}>CoinRatios</h1>
+    <div style={{ padding: 30, maxWidth: 1000, margin: "0 auto" }}>
+      <h1 style={{ marginBottom: 40 }}>CoinRatios</h1>
 
-      <input
-        className="search-input"
-        placeholder="Search coins..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      {/* --- TOP GRID --- */}
+      <div className="top-grid">
+        {/* Amount */}
+        <div className="card-coin">
+          <label className="label">AMOUNT</label>
+          <input
+            className="amount-input"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </div>
 
-      <div className="coin-list">
-        {filtered.map((coin) => {
-          const selected =
-            coinA?.id === coin.id || coinB?.id === coin.id;
+        {/* Coin A */}
+        <div className="card-coin">
+          <label className="label">FROM</label>
 
-          return (
-            <div
-              key={coin.id}
-              className={`coin-item ${selected ? "selected" : ""}`}
-              onClick={() => {
-                if (!coinA) setCoinA(coin);
-                else if (!coinB) setCoinB(coin);
-                else {
-                  setCoinA(coin);
-                  setCoinB(null);
-                }
-              }}
-            >
-              <img
-                src={coin.image}
-                width={22}
-                height={22}
-                style={{ marginRight: 8 }}
-              />
-              {coin.name} ({coin.symbol.toUpperCase()})
+          <div
+            className="dropdown-box"
+            onClick={() => setShowDropdown(showDropdown === "A" ? null : "A")}
+          >
+            {coinA ? (
+              <>
+                <img src={coinA.image} className="coin-icon" />
+                <div>
+                  <div className="coin-symbol">{coinA.symbol.toUpperCase()}</div>
+                  <div className="coin-name">{coinA.name}</div>
+                </div>
+              </>
+            ) : (
+              <div className="placeholder">Select Coin</div>
+            )}
+          </div>
+
+          {showDropdown === "A" && (
+            <div className="dropdown-list">
+              {filteredCoins("").map((coin) => (
+                <div
+                  key={coin.id}
+                  className="dropdown-item"
+                  onClick={() => {
+                    setCoinA(coin);
+                    setShowDropdown(null);
+                  }}
+                >
+                  <img src={coin.image} className="coin-icon" />
+                  {coin.name} ({coin.symbol.toUpperCase()})
+                </div>
+              ))}
             </div>
-          );
-        })}
+          )}
+        </div>
+
+        {/* Swap Button */}
+        <div className="swap-wrap">
+          <button className="swap-btn" onClick={swap}>
+            ⇆
+          </button>
+        </div>
+
+        {/* Coin B */}
+        <div className="card-coin">
+          <label className="label">TO</label>
+
+          <div
+            className="dropdown-box"
+            onClick={() => setShowDropdown(showDropdown === "B" ? null : "B")}
+          >
+            {coinB ? (
+              <>
+                <img src={coinB.image} className="coin-icon" />
+                <div>
+                  <div className="coin-symbol">{coinB.symbol.toUpperCase()}</div>
+                  <div className="coin-name">{coinB.name}</div>
+                </div>
+              </>
+            ) : (
+              <div className="placeholder">Select Coin</div>
+            )}
+          </div>
+
+          {showDropdown === "B" && (
+            <div className="dropdown-list">
+              {filteredCoins("").map((coin) => (
+                <div
+                  key={coin.id}
+                  className="dropdown-item"
+                  onClick={() => {
+                    setCoinB(coin);
+                    setShowDropdown(null);
+                  }}
+                >
+                  <img src={coin.image} className="coin-icon" />
+                  {coin.name} ({coin.symbol.toUpperCase()})
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {coinA && coinB && ratio && (
-        <h2 style={{ marginTop: 20 }}>
-          <b>{coinA.symbol.toUpperCase()}</b> /
-          <b> {coinB.symbol.toUpperCase()}</b>: {ratio.toFixed(6)}
-        </h2>
-      )}
+      {/* RATIO RESULT */}
+      {ratio && coinA && coinB && (
+        <div className="ratio-box">
+          <div className="ratio-label">
+            1 {coinA.symbol.toUpperCase()} to {coinB.symbol.toUpperCase()}
+          </div>
 
-      {chartData && (
-        <div className="chart-container">
-          <Line data={chartData} />
+          <div className="ratio-big">
+            {(ratio * parseFloat(amount)).toFixed(4)}{" "}
+            {coinB.symbol.toUpperCase()}
+          </div>
+
+          <div className="ratio-sub">
+            1 {coinA.symbol.toUpperCase()} = {ratio.toFixed(6)}{" "}
+            {coinB.symbol.toUpperCase()}
+          </div>
+
+          <div className="ratio-sub">
+            1 {coinB.symbol.toUpperCase()} = {(1 / ratio).toFixed(6)}{" "}
+            {coinA.symbol.toUpperCase()}
+          </div>
         </div>
       )}
     </div>

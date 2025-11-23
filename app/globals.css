@@ -1,130 +1,134 @@
-/* ------------------------------------------------------ */
-/* Light / Dark Theme Variables                           */
-/* ------------------------------------------------------ */
-
-:root {
-  --bg: #ffffff;
-  --text: #111111;
-  --card-bg: #fafafa;
-  --card-border: #e6e6e6;
-  --accent: #2f73ff;
-  --chart-grid: #cccccc;
-}
-
-html.dark {
-  --bg: #111111;
-  --text: #e6e6e6;
-  --card-bg: #1a1a1a;
-  --card-border: #333333;
-  --accent: #4d9dff;
-  --chart-grid: #444444;
-}
-
-/* ------------------------------------------------------ */
-/* Base Styling                                           */
-/* ------------------------------------------------------ */
-
-body {
-  background: var(--bg);
-  color: var(--text);
-  margin: 0;
-  padding: 0;
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-h1 {
-  color: var(--text);
-  font-weight: 700;
-}
-
-/* ------------------------------------------------------ */
-/* Theme Toggle Button                                     */
-/* ------------------------------------------------------ */
-
-.theme-toggle-container {
-  position: fixed;
-  top: 15px;
-  right: 20px;
-  z-index: 100;
-}
-
-.theme-toggle-btn {
-  padding: 8px 14px;
+/* GENERAL CARDS */
+.card-coin {
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: 8px;
-  cursor: pointer;
+  padding: 14px;
+  border-radius: 10px;
+  position: relative;
+}
+
+.label {
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
+  opacity: 0.6;
+  margin-bottom: 6px;
+  display: block;
 }
 
-/* ------------------------------------------------------ */
-/* Coin Selector Cards                                    */
-/* ------------------------------------------------------ */
-
-.card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  padding: 15px;
-  border-radius: 12px;
-  margin-bottom: 20px;
+/* GRID */
+.top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 60px 1fr;
+  gap: 20px;
+  align-items: end;
 }
 
-.search-input {
+/* AMOUNT INPUT */
+.amount-input {
   width: 100%;
-  padding: 10px;
-  border-radius: 6px;
+  padding: 14px;
+  border-radius: 8px;
   border: 1px solid var(--card-border);
   background: var(--bg);
   color: var(--text);
+  font-size: 22px;
 }
 
-.coin-list {
-  max-height: 300px;
-  overflow-y: auto;
-  margin-top: 10px;
+/* DROPDOWN BOX */
+.dropdown-box {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
   border: 1px solid var(--card-border);
-  border-radius: 6px;
-}
-
-.coin-item {
   display: flex;
   align-items: center;
-  padding: 8px;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.placeholder {
+  color: var(--text);
+  opacity: 0.5;
+}
+
+.coin-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+/* DROPDOWN LIST */
+.dropdown-list {
+  position: absolute;
+  top: 95px;
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  z-index: 50;
+}
+
+.dropdown-item {
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
   color: var(--text);
 }
 
-.coin-item:hover {
-  background: rgba(47, 115, 255, 0.08);
+.dropdown-item:hover {
+  background: rgba(47, 115, 255, 0.1);
 }
 
-.coin-item.selected {
-  background: rgba(47, 115, 255, 0.15);
+/* SWAP BUTTON */
+.swap-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
-/* ------------------------------------------------------ */
-/* Buttons                                                */
-/* ------------------------------------------------------ */
-
-.button-primary {
-  background: var(--accent);
-  color: white;
-  padding: 10px 20px;
-  border-radius: 8px;
+.swap-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  font-size: 26px;
   border: none;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-/* ------------------------------------------------------ */
-/* Chart Container                                        */
-/* ------------------------------------------------------ */
-
-.chart-container {
-  margin-top: 30px;
-  padding: 20px;
-  border-radius: 12px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.swap-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* RATIO OUTPUT SECTION */
+.ratio-box {
+  text-align: center;
+  margin-top: 50px;
+}
+
+.ratio-label {
+  color: var(--text);
+  font-size: 18px;
+  opacity: 0.8;
+}
+
+.ratio-big {
+  font-size: 72px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 20px 0;
+}
+
+.ratio-sub {
+  color: var(--text);
+  font-size: 22px;
+  opacity: 0.7;
 }
