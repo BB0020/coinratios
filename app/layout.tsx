@@ -1,8 +1,6 @@
-import "./globals.css";
-
 export const metadata = {
   title: "CoinRatios",
-  description: "Compare any two crypto coins by ratio",
+  description: "Real-time crypto & fiat ratios",
 };
 
 export default function RootLayout({

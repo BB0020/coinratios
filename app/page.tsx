@@ -1,297 +1,298 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import axios from "axios";
 
-// Fiat currencies injected as virtual coins
-const fiatCurrencies = [
+interface Coin {
+  id: string;
+  symbol: string;
+  name: string;
+  image?: string;
+  flag?: string;
+  isFiat?: boolean;
+}
+
+const fiatCurrencies: Coin[] = [
   {
     id: "usd",
     symbol: "usd",
     name: "US Dollar",
     flag: "https://flagcdn.com/us.svg",
+    isFiat: true,
   },
   {
     id: "eur",
     symbol: "eur",
     name: "Euro",
     flag: "https://flagcdn.com/eu.svg",
+    isFiat: true,
   },
   {
     id: "gbp",
     symbol: "gbp",
     name: "British Pound",
     flag: "https://flagcdn.com/gb.svg",
+    isFiat: true,
   },
   {
     id: "cad",
     symbol: "cad",
     name: "Canadian Dollar",
     flag: "https://flagcdn.com/ca.svg",
+    isFiat: true,
   },
   {
     id: "aud",
     symbol: "aud",
     name: "Australian Dollar",
     flag: "https://flagcdn.com/au.svg",
-  }
+    isFiat: true,
+  },
 ];
 
-
-interface Coin {
-  id: string;
-  symbol: string;
-  name: string;
-  image?: string; // crypto coins
-  flag?: string; // fiat
-}
-
 export default function Home() {
-  const [coins, setCoins] = useState<Coin[]>([]);
-  const [coinA, setCoinA] = useState<Coin | null>(null);
-  const [coinB, setCoinB] = useState<Coin | null>(null);
-  const [dropdown, setDropdown] = useState<"A" | "B" | null>(null);
-  const [searchA, setSearchA] = useState("");
-  const [searchB, setSearchB] = useState("");
-  const [amount, setAmount] = useState("1.00");
-  const [ratio, setRatio] = useState<number | null>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [crypto, setCrypto] = useState<Coin[]>([]);
+  const [amount, setAmount] = useState("1");
 
-  // Close dropdown when clicking outside
+  const [fromCoin, setFromCoin] = useState<Coin | null>(null);
+  const [toCoin, setToCoin] = useState<Coin | null>(null);
+
+  const [dropdownTarget, setDropdownTarget] = useState<"from" | "to" | null>(
+    null
+  );
+  const [search, setSearch] = useState("");
+
+  const [result, setResult] = useState<number | null>(null);
+
+  // Load top 200 crypto coins
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (
-        wrapperRef.current &&
-        !wrapperRef.current.contains(e.target as Node)
-      ) {
-        setDropdown(null);
+    axios
+      .get(
+        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1"
+      )
+      .then((res) => setCrypto(res.data));
+  }, []);
+
+  // Default selection (BTC → USD)
+  useEffect(() => {
+    if (crypto.length > 0) {
+      const btc = crypto.find((c) => c.symbol === "btc");
+      const usd = fiatCurrencies[0];
+
+      if (btc && usd) {
+        setFromCoin(btc);
+        setToCoin(usd);
       }
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  }, [crypto]);
 
-  // Load crypto + inject fiat
+  // Perform conversion
   useEffect(() => {
-    axios
-      .get(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200"
-      )
-      .then((res) => {
-        const crypto = res.data.map((c: any) => ({
-          id: c.id,
-          symbol: c.symbol,
-          name: c.name,
-          image: c.image,
-        }));
+    const run = async () => {
+      if (!fromCoin || !toCoin || !amount) return;
 
-        setCoins([...fiatCurrencies, ...crypto]);
-      });
-  }, []);
+      const ids = [];
 
-  // Default selection = BTC → USD
-  useEffect(() => {
-    const btc = coins.find((c) => c.id === "bitcoin");
-    const usd = coins.find((c) => c.id === "usd");
-    if (btc && usd) {
-      setCoinA(btc);
-      setCoinB(usd);
-    }
-  }, [coins]);
+      if (!fromCoin.isFiat) ids.push(fromCoin.id);
+      if (!toCoin.isFiat) ids.push(toCoin.id);
 
-  // Calculate ratio
-  useEffect(() => {
-    if (!coinA || !coinB) return;
+      const priceRes = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(
+          ","
+        )}&vs_currencies=usd`
+      );
 
-    axios
-      .get(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinA.id}&vs_currencies=${coinB.id}`
-      )
-      .then((res) => {
-        const value = res.data?.[coinA.id]?.[coinB.id];
-        if (value) setRatio(value);
-      });
-  }, [coinA, coinB]);
+      const getUsdValue = (coin: Coin) => {
+        if (coin.isFiat) {
+          const rates: any = {
+            usd: 1,
+            eur: 1.08,
+            gbp: 1.27,
+            cad: 0.74,
+            aud: 0.66,
+          };
+          return 1 / rates[coin.symbol];
+        } else {
+          return priceRes.data[coin.id].usd;
+        }
+      };
 
-  // Filtered coin lists
-  const listA = coins.filter((c) =>
-    `${c.name} ${c.symbol}`
-      .toLowerCase()
-      .includes(searchA.toLowerCase())
-  );
+      const a = getUsdValue(fromCoin);
+      const b = getUsdValue(toCoin);
 
-  const listB = coins.filter((c) =>
-    `${c.name} ${c.symbol}`
-      .toLowerCase()
-      .includes(searchB.toLowerCase())
+      setResult((parseFloat(amount) * a) / b);
+    };
+
+    run();
+  }, [fromCoin, toCoin, amount]);
+
+  const allCoins = [...crypto, ...fiatCurrencies];
+
+  const filteredCoins = allCoins.filter((c) =>
+    `${c.name} ${c.symbol}`.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
-    <div ref={wrapperRef} style={{ padding: 30, maxWidth: 900, margin: "0 auto" }}>
-      <h1>CoinRatios</h1>
+    <div>
+      <label className="coin-label">AMOUNT</label>
+      <input
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        className="amount-input"
+      />
 
-      {/* TOP GRID */}
-      <div className="top-grid">
-        {/* AMOUNT */}
-        <div className="card-coin">
-          <label className="label">AMOUNT</label>
-          <input
-            className="amount-input"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          {(!amount || isNaN(Number(amount)) || Number(amount) <= 0) && (
-            <div className="amount-error">
-              Amount needs to be a number and greater than 0.
-            </div>
-          )}
-        </div>
-
-        {/* FROM */}
-        <div className="card-coin">
-          <label className="label">FROM</label>
-
-          <div
-            className="dropdown-box"
-            onClick={() => setDropdown(dropdown === "A" ? null : "A")}
-          >
-            {coinA ? (
-              <>
-                {coinA.flag ? (
-                  <span className="flag-icon">{coinA.flag}</span>
-                ) : (
-                  <img src={coinA.image} width={32} height={32} />
-                )}
-                <div>
-                  <div style={{ fontWeight: 600 }}>{coinA.symbol.toUpperCase()}</div>
-                  <div style={{ opacity: 0.6 }}>{coinA.name}</div>
-                </div>
-              </>
-            ) : (
-              <span className="placeholder">Select Coin</span>
-            )}
-          </div>
-
-          {dropdown === "A" && (
-            <div className="dropdown-panel">
-              <input
-                className="dropdown-search"
-                placeholder="Search all…"
-                value={searchA}
-                onChange={(e) => setSearchA(e.target.value)}
-              />
-
-              {listA.map((coin) => (
-                <div
-                  key={coin.id}
-                  className="dropdown-item"
-                  onClick={() => {
-                    setCoinA(coin);
-                    setDropdown(null);
-                    setSearchA("");
-                  }}
-                >
-                  {coin.flag ? (
-                    <span className="flag-icon">{coin.flag}</span>
-                  ) : (
-                    <img src={coin.image} width={24} height={24} />
-                  )}
-                  {coin.name} ({coin.symbol.toUpperCase()})
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* SWAP */}
-        <div className="swap-wrap">
-          <button
-            className="swap-btn"
-            onClick={() => {
-              const old = coinA;
-              setCoinA(coinB);
-              setCoinB(old);
-            }}
-          >
-            ⇆
-          </button>
-        </div>
-
-        {/* TO */}
-        <div className="card-coin">
-          <label className="label">TO</label>
-
-          <div
-            className="dropdown-box"
-            onClick={() => setDropdown(dropdown === "B" ? null : "B")}
-          >
-            {coinB ? (
-              <>
-                {coinB.flag ? (
-                  <span className="flag-icon">{coinB.flag}</span>
-                ) : (
-                  <img src={coinB.image} width={32} height={32} />
-                )}
-                <div>
-                  <div style={{ fontWeight: 600 }}>{coinB.symbol.toUpperCase()}</div>
-                  <div style={{ opacity: 0.6 }}>{coinB.name}</div>
-                </div>
-              </>
-            ) : (
-              <span className="placeholder">Select Coin</span>
-            )}
-          </div>
-
-          {dropdown === "B" && (
-            <div className="dropdown-panel">
-              <input
-                className="dropdown-search"
-                placeholder="Search all…"
-                value={searchB}
-                onChange={(e) => setSearchB(e.target.value)}
-              />
-
-              {listB.map((coin) => (
-                <div
-                  key={coin.id}
-                  className="dropdown-item"
-                  onClick={() => {
-                    setCoinB(coin);
-                    setDropdown(null);
-                    setSearchB("");
-                  }}
-                >
-                  {coin.flag ? (
-                    <span className="flag-icon">{coin.flag}</span>
-                  ) : (
-                    <img src={coin.image} width={24} height={24} />
-                  )}
-                  {coin.name} ({coin.symbol.toUpperCase()})
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* FROM */}
+      <div className="coin-label" style={{ marginTop: 34 }}>
+        FROM
       </div>
 
-      {/* RATIO OUTPUT */}
-      {ratio && (
-        <div className="ratio-box">
-          <div className="ratio-sub">
-            1 {coinA?.symbol.toUpperCase()} →
+      <div
+        className="coin-box"
+        onClick={() => setDropdownTarget("from")}
+      >
+        {fromCoin && (
+          <div className="coin-row">
+            <img
+              src={fromCoin.isFiat ? fromCoin.flag : fromCoin.image}
+              className={fromCoin.isFiat ? "flag-icon" : "crypto-icon"}
+            />
+            <div className="coin-info">
+              <div className="coin-symbol">{fromCoin.symbol.toUpperCase()}</div>
+              <div className="coin-name">{fromCoin.name}</div>
+            </div>
+          </div>
+        )}
+
+        {dropdownTarget === "from" && (
+          <div className="dropdown">
+            <input
+              placeholder="Search all…"
+              className="dropdown-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            {filteredCoins.map((c) => (
+              <div
+                key={c.id}
+                className="dropdown-item"
+                onClick={() => {
+                  setFromCoin(c);
+                  setDropdownTarget(null);
+                  setSearch("");
+                }}
+              >
+                <img
+                  src={c.isFiat ? c.flag : c.image}
+                  className={c.isFiat ? "flag-icon" : "crypto-icon"}
+                />
+
+                <div>
+                  <div className="dropdown-symbol">
+                    {c.symbol.toUpperCase()}
+                  </div>
+                  <div className="dropdown-name">{c.name}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Swap button */}
+      <div
+        className="swap-btn"
+        onClick={() => {
+          const a = fromCoin;
+          const b = toCoin;
+          setFromCoin(b);
+          setToCoin(a);
+        }}
+      >
+        <svg
+          className="swap-arrow"
+          viewBox="0 0 24 24"
+          fill="none"
+        >
+          <path d="M7 7h10M13 3l4 4-4 4M17 17H7m4 4l-4-4 4-4" />
+        </svg>
+      </div>
+
+      {/* TO */}
+      <div className="coin-label">TO</div>
+
+      <div
+        className="coin-box"
+        onClick={() => setDropdownTarget("to")}
+      >
+        {toCoin && (
+          <div className="coin-row">
+            <img
+              src={toCoin.isFiat ? toCoin.flag : toCoin.image}
+              className={toCoin.isFiat ? "flag-icon" : "crypto-icon"}
+            />
+
+            <div className="coin-info">
+              <div className="coin-symbol">{toCoin.symbol.toUpperCase()}</div>
+              <div className="coin-name">{toCoin.name}</div>
+            </div>
+          </div>
+        )}
+
+        {dropdownTarget === "to" && (
+          <div className="dropdown">
+            <input
+              placeholder="Search all…"
+              className="dropdown-search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            {filteredCoins.map((c) => (
+              <div
+                key={c.id}
+                className="dropdown-item"
+                onClick={() => {
+                  setToCoin(c);
+                  setDropdownTarget(null);
+                  setSearch("");
+                }}
+              >
+                <img
+                  src={c.isFiat ? c.flag : c.image}
+                  className={c.isFiat ? "flag-icon" : "crypto-icon"}
+                />
+
+                <div>
+                  <div className="dropdown-symbol">
+                    {c.symbol.toUpperCase()}
+                  </div>
+                  <div className="dropdown-name">{c.name}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* RESULT */}
+      {result !== null && fromCoin && toCoin && (
+        <div style={{ marginTop: 60, textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: 22,
+              marginBottom: 14,
+              color: "var(--text-secondary)",
+            }}
+          >
+            {amount} {fromCoin.symbol.toUpperCase()} → {toCoin.symbol.toUpperCase()}
           </div>
 
-          <div className="ratio-big">
-            {(ratio * Number(amount)).toFixed(4)} {coinB?.symbol.toUpperCase()}
-          </div>
-
-          <div className="ratio-sub">
-            1 {coinA?.symbol.toUpperCase()} = {ratio.toFixed(6)}{" "}
-            {coinB?.symbol.toUpperCase()}
-          </div>
-          <div className="ratio-sub">
-            1 {coinB?.symbol.toUpperCase()} = {(1 / ratio).toFixed(6)}{" "}
-            {coinA?.symbol.toUpperCase()}
+          <div style={{ fontSize: 58, fontWeight: 700 }}>
+            {result.toLocaleString(undefined, {
+              maximumFractionDigits: 6,
+            })}{" "}
+            {toCoin.symbol.toUpperCase()}
           </div>
         </div>
       )}

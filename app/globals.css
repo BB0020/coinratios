@@ -1,177 +1,176 @@
-/* ROOT THEME VARIABLES */
-:root {
-  --bg: #ffffff;
-  --text: #111111;
-  --card-bg: #fafafa;
-  --card-border: #e6e6e6;
-  --accent: #2f73ff;
-  --error: #ff4d4d;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: Inter, system-ui, sans-serif;
 }
 
-html.dark {
-  --bg: #111111;
-  --text: #e6e6e6;
-  --card-bg: #1a1a1a;
-  --card-border: #333333;
-  --accent: #4d9dff;
-  --error: #ff6666;
-}
-
-/* BASE */
 body {
   background: var(--bg);
   color: var(--text);
-  margin: 0;
-  padding: 0;
-  font-family: Arial, Helvetica, sans-serif;
+  padding: 40px;
 }
 
-h1 {
-  font-size: 28px;
-  margin-bottom: 30px;
+:root {
+  --bg: #f8f9fc;
+  --input-bg: #ffffff;
+  --text: #1a1a1a;
+  --text-secondary: #617083;
+  --border: #d9dce3;
+  --card-bg: #ffffff;
+  --arrow: #1a1a1a;
+  --arrow-hover: #3b82f6;
 }
 
-/* INPUT + CARD */
-.card-coin {
+.dark {
+  --bg: #0f172a;
+  --input-bg: #1e293b;
+  --text: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --border: #334155;
+  --card-bg: #1e293b;
+  --arrow: #f1f5f9;
+  --arrow-hover: #60a5fa;
+}
+
+/* Amount box */
+
+.amount-input {
+  width: 100%;
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  font-size: 38px;
+  color: var(--text);
+  outline: none;
+}
+
+/* Coin container */
+
+.coin-box {
+  margin-top: 35px;
+  padding: 22px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
   background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  padding: 14px;
-  border-radius: 10px;
+  cursor: pointer;
   position: relative;
 }
 
-.label {
-  font-size: 12px;
-  opacity: 0.65;
-  margin-bottom: 6px;
+.coin-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.coin-row {
+  display: flex;
+  align-items: center;
+}
+
+.coin-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.coin-symbol {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.coin-name {
+  font-size: 16px;
+  margin-top: 2px;
+  color: var(--text-secondary);
+}
+
+/* Flag & crypto icons */
+
+.flag-icon,
+.crypto-icon {
+  width: 32px;
+  height: 32px;
+  margin-right: 14px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+/* Dropdown */
+
+.dropdown {
+  position: absolute;
+  top: 95%;
+  left: 0;
+  width: 100%;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  z-index: 999;
+}
+
+.dropdown-search {
+  width: 95%;
+  margin: 10px auto 15px auto;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 15px;
   display: block;
 }
 
-/* AMOUNT INPUT */
-.amount-input {
-  width: 100%;
-  padding: 14px;
-  border-radius: 8px;
-  border: 1px solid var(--card-border);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 22px;
-}
-
-.amount-error {
-  color: var(--error);
-  font-size: 13px;
-  margin-top: 6px;
-}
-
-/* GRID */
-.top-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 60px 1fr;
-  gap: 20px;
-  align-items: end;
-}
-
-/* DROPDOWN SELECTOR */
-.dropdown-box {
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--bg);
-  border: 1px solid var(--card-border);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.placeholder {
-  opacity: 0.5;
-}
-
-/* DROPDOWN PANEL */
-.dropdown-panel {
-  position: absolute;
-  top: 92px;
-  left: 0;
-  right: 0;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  z-index: 50;
-  padding: 12px;
-  max-height: 330px;
-  overflow-y: auto;
-}
-
-/* SEARCH BAR INSIDE DROPDOWN */
-.dropdown-search {
-  width: 100%;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid var(--card-border);
-  background: var(--bg);
-  color: var(--text);
-  margin-bottom: 12px;
-}
-
-/* LIST ITEMS */
 .dropdown-item {
-  padding: 12px;
-  border-radius: 8px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  padding: 12px 16px;
   cursor: pointer;
 }
 
 .dropdown-item:hover {
-  background: rgba(47, 115, 255, 0.15);
+  background: rgba(59, 130, 246, 0.10);
 }
 
-/* EMOJI FLAG = ICON */
-.flag-icon {
-  font-size: 22px;
+.dropdown-symbol {
+  font-size: 20px;
+  font-weight: 600;
 }
 
-/* SWAP */
-.swap-wrap {
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.dropdown-name {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
+
+/* Swap arrow button */
 
 .swap-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  font-size: 26px;
-  border: none;
+  width: 54px;
+  height: 54px;
   background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  color: var(--text);
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: 0.2s;
+  margin: 45px auto;
+  transition: 0.2s ease;
 }
 
-.swap-btn:hover {
-  background: var(--accent);
-  color: #fff;
-  transform: rotate(90deg);
+.swap-btn:hover .swap-arrow {
+  stroke: var(--arrow-hover);
 }
 
-/* RATIO OUTPUT */
-.ratio-box {
-  text-align: center;
-  margin-top: 40px;
-}
+/* CSS arrow icon */
 
-.ratio-big {
-  font-size: 58px;
-  font-weight: 700;
-  margin: 12px 0;
-}
-
-.ratio-sub {
-  font-size: 20px;
-  opacity: 0.75;
+.swap-arrow {
+  width: 28px;
+  height: 28px;
+  stroke: var(--arrow);
+  stroke-width: 2.4;
 }
