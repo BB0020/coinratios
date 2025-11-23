@@ -1,208 +1,158 @@
 /* ------------------------------------------------------ */
-/* Light / Dark Theme Variables                           */
+/* Global Reset */
 /* ------------------------------------------------------ */
-
-:root {
-  --bg: #ffffff;
-  --text: #111111;
-  --card-bg: #fafafa;
-  --card-border: #e6e6e6;
-  --accent: #2f73ff;
-  --chart-grid: #cccccc;
-}
-
-html.dark {
-  --bg: #111111;
-  --text: #e6e6e6;
-  --card-bg: #1a1a1a;
-  --card-border: #333333;
-  --accent: #4d9dff;
-  --chart-grid: #444444;
-}
-
-/* ------------------------------------------------------ */
-/* Base Styling                                           */
-/* ------------------------------------------------------ */
-
-body {
-  background: var(--bg);
-  color: var(--text);
+* {
+  box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: Arial, Helvetica, sans-serif;
 }
 
-h1, h2, h3, h4 {
-  color: var(--text);
-  font-weight: 700;
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  background: #f7f9fc;
+  color: #111;
 }
 
 /* ------------------------------------------------------ */
-/* Layout Cards                                           */
+/* Amount Input */
 /* ------------------------------------------------------ */
+.amount-input {
+  width: 100%;
+  padding: 18px 20px;
+  font-size: 24px;
+  border-radius: 14px;
+  border: 1px solid #ddd;
+  margin-top: 6px;
+  background: #fff;
+}
 
+.amount-warning {
+  margin-top: 8px;
+  font-size: 14px;
+  color: #b40000;
+}
+
+/* ------------------------------------------------------ */
+/* Card Coins */
+/* ------------------------------------------------------ */
 .card-coin {
-  position: relative;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 16px 18px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid #ddd;
   cursor: pointer;
-  transition: 0.15s ease;
+  margin-top: 6px;
+  transition: 0.15s;
 }
 
 .card-coin:hover {
-  border-color: var(--accent);
+  border-color: #3b82f6;
 }
 
 /* ------------------------------------------------------ */
-/* Swap Button                                            */
+/* Dropdown */
 /* ------------------------------------------------------ */
-
-.swap-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: 0.2s ease;
-}
-
-.swap-btn:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.swap-btn img {
-  width: 22px;
-  filter: invert(40%);
-}
-
-.swap-btn:hover img {
-  filter: brightness(0) invert(1);
-}
-
-/* ------------------------------------------------------ */
-/* Dropdown Panel                                         */
-/* ------------------------------------------------------ */
-
 .dropdown-panel {
+  display: none;
   position: absolute;
-  top: 90px;
-  left: 0;
-  right: 0;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  padding: 12px;
-  z-index: 20;
-  max-height: 330px;
+  z-index: 100;
+  width: 100%;
+  max-height: 340px;
   overflow-y: auto;
-  display: none;    /* FIXED */
+  background: #fff;
+  margin-top: 6px;
+  border-radius: 14px;
+  border: 1px solid #ccc;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.15);
+  padding: 12px;
 }
 
 .dropdown-panel.open {
-  display: block;   /* FIXED */
+  display: block;
 }
-
-/* ------------------------------------------------------ */
-/* Dropdown Search                                        */
-/* ------------------------------------------------------ */
 
 .dropdown-search {
   width: 100%;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid var(--card-border);
-  background: var(--bg);
-  color: var(--text);
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  margin-bottom: 12px;
   font-size: 15px;
-  margin-bottom: 10px;
 }
-
-/* ------------------------------------------------------ */
-/* Dropdown Item                                          */
-/* ------------------------------------------------------ */
 
 .dropdown-item {
   display: flex;
   align-items: center;
-  padding: 10px 6px;
+  padding: 10px;
+  border-radius: 10px;
   cursor: pointer;
-  border-radius: 8px;
-  transition: 0.15s ease;
-}
-
-.dropdown-item:hover {
-  background: rgba(47, 115, 255, 0.12);
+  transition: 0.12s;
 }
 
 .dropdown-item img {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   margin-right: 12px;
 }
 
+.dropdown-item:hover {
+  background: #f0f5ff;
+}
+
 .dropdown-item-symbol {
-  font-weight: 600;
-  color: var(--text);
-  margin-right: 8px;
+  font-weight: 700;
+  margin-right: 6px;
 }
 
 .dropdown-item-name {
-  font-size: 14px;
-  color: var(--text);
+  opacity: 0.7;
+}
+
+/* ------------------------------------------------------ */
+/* Swap Button */
+/* ------------------------------------------------------ */
+.swap-btn {
+  width: 54px;
+  height: 54px;
+  background: #fff;
+  border-radius: 50%;
+  border: 1px solid #ddd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: 32px;
+}
+
+.swap-btn img {
+  width: 28px;
   opacity: 0.75;
 }
 
-/* ------------------------------------------------------ */
-/* Amount Input                                           */
-/* ------------------------------------------------------ */
-
-.amount-input {
-  width: 100%;
-  padding: 18px;
-  border-radius: 12px;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  font-size: 22px;
-  color: var(--text);
+.swap-btn:hover {
+  border-color: #3b82f6;
+  background: #eef4ff;
 }
 
-.amount-warning {
-  margin-top: 6px;
-  color: #cc3333;
+.swap-btn:hover img {
+  opacity: 1;
 }
 
 /* ------------------------------------------------------ */
-/* Chart Container                                        */
+/* Result Area */
 /* ------------------------------------------------------ */
-
-.chart-container {
-  margin-top: 35px;
-  padding: 20px;
-  border-radius: 12px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
+.result-big {
+  font-size: 60px;
+  font-weight: 700;
+  margin-top: 20px;
 }
 
-/* ------------------------------------------------------ */
-/* Scrollbar                                              */
-/* ------------------------------------------------------ */
-
-.dropdown-panel::-webkit-scrollbar {
-  width: 8px;
-}
-
-.dropdown-panel::-webkit-scrollbar-thumb {
-  background: #999;
-  border-radius: 4px;
-}
-
-.dropdown-panel::-webkit-scrollbar-thumb:hover {
-  background: #777;
+.result-sub {
+  opacity: 0.7;
+  line-height: 1.7;
+  margin-top: 10px;
+  font-size: 16px;
 }
