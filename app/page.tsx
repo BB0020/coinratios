@@ -1,269 +1,408 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import Image from "next/image";
-import { createChart } from "lightweight-charts";
+import axios from "axios";
 
-interface Asset {
-    id: string;
-    symbol: string;
-    name: string;
-    image?: string;
-    type: "crypto" | "fiat";
+interface Item {
+  id: string;
+  symbol: string;
+  name: string;
+  type: "crypto" | "fiat";
+  image: string;
 }
 
-// ------------------------------
-// ASSET LIST (CRYPTO + FIAT)
-// ------------------------------
-const cryptoList: Asset[] = [
-    {
-        id: "bitcoin",
-        symbol: "BTC",
-        name: "Bitcoin",
-        image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
-        type: "crypto"
-    },
-    {
-        id: "ethereum",
-        symbol: "ETH",
-        name: "Ethereum",
-        image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png",
-        type: "crypto"
-    },
+const fiatList: Item[] = [
+  { id: "usd", symbol: "USD", name: "US Dollar", type: "fiat", image: "https://flagcdn.com/us.svg" },
+  { id: "eur", symbol: "EUR", name: "Euro", type: "fiat", image: "https://flagcdn.com/eu.svg" },
+  { id: "gbp", symbol: "GBP", name: "British Pound", type: "fiat", image: "https://flagcdn.com/gb.svg" },
+  { id: "cad", symbol: "CAD", name: "Canadian Dollar", type: "fiat", image: "https://flagcdn.com/ca.svg" },
+  { id: "aud", symbol: "AUD", name: "Australian Dollar", type: "fiat", image: "https://flagcdn.com/au.svg" },
 ];
 
-const fiatList: Asset[] = [
-    {
-        id: "USD",
-        symbol: "USD",
-        name: "US Dollar",
-        image: "https://flagcdn.com/us.svg",
-        type: "fiat"
-    },
-    {
-        id: "EUR",
-        symbol: "EUR",
-        name: "Euro",
-        image: "https://flagcdn.com/eu.svg",
-        type: "fiat"
-    },
-];
-
-const allAssets: Asset[] = [...cryptoList, ...fiatList];
-
-// ====================================
-//            MAIN COMPONENT
-// ====================================
 export default function Page() {
-    const [amount, setAmount] = useState<string>("1");
-    const [from, setFrom] = useState<Asset>(allAssets[0]);
-    const [to, setTo] = useState<Asset>(allAssets[1]);
-    const [result, setResult] = useState<number | null>(null);
 
-    const [historyData, setHistoryData] = useState<any[]>([]);
-    const chartContainerRef = useRef<HTMLDivElement | null>(null);
-    const chartRef = useRef<any>(null);
-    const areaRef = useRef<any>(null);
+  const [allCoins, setAllCoins] = useState<Item[]>([]);
+  const [filtered, setFiltered] = useState<Item[]>([]);
+  const [search, setSearch] = useState("");
 
-    // --------------------------------------
-    // Fetch conversion rate
-    // --------------------------------------
-    async function fetchRate() {
-        try {
-            if (!from || !to) return;
+  const [amount, setAmount] = useState("1");
+  const [isInvalid, setIsInvalid] = useState(false);
 
-            // Fiat ↔ Fiat or Crypto ↔ Fiat or Crypto ↔ Crypto
-            let rate = 0;
+  const [fromCoin, setFromCoin] = useState<Item | null>(null);
+  const [toCoin, setToCoin] = useState<Item | null>(null);
+  const [result, setResult] = useState<number | null>(null);
 
-            if (from.type === "fiat" && to.type === "fiat") {
-                // ★ Frankfurter API
-                const res = await fetch(`https://api.frankfurter.app/latest?from=${from.id}&to=${to.id}`);
-                const data = await res.json();
-                rate = data.rates?.[to.id] || 0;
-            } 
-            else {
-                // ★ CoinGecko
-                const res = await fetch(
-                    `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.symbol.toLowerCase()}`
-                );
-                const data = await res.json();
-                rate = data?.[from.id]?.[to.symbol.toLowerCase()] || 0;
-            }
+  const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
-            setResult(Number(rate) * Number(amount || 0));
-        } catch (err) {
-            console.error("Rate fetch error:", err);
-        }
+  /* Close dropdown on outside click */
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+
+  /* Load crypto list */
+  useEffect(() => {
+    axios.get(
+      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=120&page=1"
+    )
+    .then((res) => {
+      const cryptoItems: Item[] = res.data.map((c: any) => ({
+        id: c.id,
+        symbol: c.symbol.toUpperCase(),
+        name: c.name,
+        type: "crypto",
+        image: c.image,
+      }));
+
+      const combined = [...fiatList, ...cryptoItems];
+      setAllCoins(combined);
+
+      setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || null);
+      setToCoin(fiatList.find((f) => f.symbol === "USD") || null);
+    })
+    .catch(console.error);
+  }, []);
+
+
+  /* Filter dropdown results */
+  useEffect(() => {
+    if (!search) {
+      setFiltered(allCoins);
+      return;
     }
-
-    // AUTO REFRESH RATE (Every 10 seconds)
-    useEffect(() => {
-        fetchRate();
-        const interval = setInterval(fetchRate, 10000);
-        return () => clearInterval(interval);
-    }, [from, to, amount]);
-
-    // --------------------------------------
-    // Fetch Historical Price (CoinGecko only)
-    // --------------------------------------
-    async function fetchHistory() {
-        try {
-            if (from.type === "fiat" || to.type === "fiat") {
-                setHistoryData([]);
-                return;
-            }
-
-            const res = await fetch(
-                `https://api.coingecko.com/api/v3/coins/${from.id}/market_chart?vs_currency=${to.symbol.toLowerCase()}&days=30`
-            );
-
-            const data = await res.json();
-
-            const mapped = data.prices
-                .map((p: any) => {
-                    if (!p || !p[0] || !p[1]) return null;
-                    return {
-                        time: Math.floor(p[0] / 1000),
-                        value: Number(p[1]),
-                    };
-                })
-                .filter((d: any): d is { time: number; value: number } => d !== null);
-
-            setHistoryData(mapped);
-        } catch (err) {
-            console.error("History fetch error:", err);
-        }
-    }
-
-    useEffect(() => {
-        fetchHistory();
-    }, [from, to]);
-
-    // --------------------------------------
-    // RENDER CHART
-    // --------------------------------------
-    useEffect(() => {
-        if (!chartContainerRef.current) return;
-
-        chartContainerRef.current.innerHTML = "";
-        const chart = createChart(chartContainerRef.current, {
-            height: 350,
-            layout: {
-                textColor: "#000",
-                background: { color: "#f8f9fa" },
-            },
-            grid: {
-                vertLines: { visible: false },
-                horzLines: { visible: false },
-            },
-            crosshair: { mode: 1 },
-        });
-
-        chartRef.current = chart;
-
-        const area = chart.addSeries({
-            type: "Area" as any,
-        } as any);
-
-        areaRef.current = area;
-
-        if (historyData.length > 0) {
-            area.setData(historyData);
-        }
-
-        return () => chart.remove();
-    }, [historyData]);
-
-    // --------------------------------------
-    // Swap From/To
-    // --------------------------------------
-    function swap() {
-        const prev = from;
-        setFrom(to);
-        setTo(prev);
-    }
-
-    // --------------------------------------
-    // Render Asset Dropdown
-    // --------------------------------------
-    function AssetSelect({
-        label,
-        value,
-        onChange,
-        disableSymbol,
-    }: {
-        label: string;
-        value: Asset;
-        onChange: (a: Asset) => void;
-        disableSymbol: string;
-    }) {
-        return (
-            <div>
-                <label className="font-bold">{label}</label>
-
-                <select
-                    value={value.id}
-                    onChange={(e) => {
-                        const found = allAssets.find((a) => a.id === e.target.value);
-                        if (found) onChange(found);
-                    }}
-                    className="w-full border p-3 rounded-lg bg-white"
-                >
-                    {allAssets.map((a) => (
-                        <option key={a.id} value={a.id} disabled={a.symbol === disableSymbol}>
-                            {a.symbol} — {a.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-        );
-    }
-
-    return (
-        <div className="p-6 max-w-4xl mx-auto">
-            <h1 className="text-3xl font-bold mb-6">CoinRatios Converter</h1>
-
-            {/* AMOUNT */}
-            <div className="mb-6">
-                <label className="font-bold">AMOUNT</label>
-                <input
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-                    placeholder="1"
-                    className="w-full border p-3 rounded-lg"
-                />
-            </div>
-
-            {/* FROM / TO */}
-            <div className="grid grid-cols-3 gap-4 items-center">
-                <AssetSelect label="FROM" value={from} onChange={setFrom} disableSymbol={to.symbol} />
-
-                {/* Swap Button */}
-                <button
-                    onClick={swap}
-                    className="mx-auto bg-white border rounded-full p-4 hover:rotate-180 transition"
-                >
-                    ↔
-                </button>
-
-                <AssetSelect label="TO" value={to} onChange={setTo} disableSymbol={from.symbol} />
-            </div>
-
-            {/* RESULT */}
-            <div className="text-center mt-10">
-                <h2 className="text-4xl font-extrabold">
-                    {result !== null ? result.toFixed(6) : "--"} {to.symbol}
-                </h2>
-            </div>
-
-            {/* CHART */}
-            <div className="mt-10">
-                <h3 className="font-bold mb-3">
-                    {from.symbol} → {to.symbol} (30 Day History)
-                </h3>
-
-                <div ref={chartContainerRef} style={{ width: "100%", height: 350 }}></div>
-            </div>
-        </div>
+    const q = search.toLowerCase();
+    setFiltered(
+      allCoins.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.symbol.toLowerCase().includes(q)
+      )
     );
+  }, [search, allCoins]);
+
+
+  /* Numeric validation */
+  const handleAmount = (v: string) => {
+    if (/^[0-9]*\.?[0-9]*$/.test(v)) {
+      setAmount(v);
+      setIsInvalid(!v || Number(v) <= 0);
+    }
+  };
+
+
+  /* =========================================================================
+     FINAL — CORRECT, ZERO-NaN CONVERSION ENGINE
+     ========================================================================= */
+
+  const fetchRate = async () => {
+    if (!fromCoin || !toCoin) return;
+    if (isInvalid || Number(amount) <= 0) {
+      setResult(null);
+      return;
+    }
+
+    const from = fromCoin;
+    const to = toCoin;
+
+    /* ---------------------- 1. FIAT → FIAT ---------------------- */
+    if (from.type === "fiat" && to.type === "fiat") {
+      const fx = await axios.get(
+        `https://api.frankfurter.app/latest?from=${from.symbol}&to=${to.symbol}`
+      );
+
+      const rate = fx.data?.rates?.[to.symbol];
+      if (!rate) return setResult(null);
+
+      setResult(Number(amount) * rate);
+      return;
+    }
+
+    /* ---------------------- 2. CRYPTO → USD --------------------- */
+    if (from.type === "crypto" && to.symbol === "USD") {
+      const cg = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`
+      );
+
+      const price = cg.data?.[from.id]?.usd;
+      if (!price) return setResult(null);
+
+      setResult(Number(amount) * price);
+      return;
+    }
+
+    /* ---------------------- 3. USD → CRYPTO --------------------- */
+    if (from.symbol === "USD" && to.type === "crypto") {
+      // 1 USD = 1 USD
+      const usdAmount = Number(amount);
+
+      // Coin price in USD
+      const cg = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${to.id}&vs_currencies=usd`
+      );
+
+      const cryptoUSD = cg.data?.[to.id]?.usd;
+      if (!cryptoUSD) return setResult(null);
+
+      setResult(usdAmount / cryptoUSD);
+      return;
+    }
+
+    /* ---------------------- 4. CRYPTO → FIAT -------------------- */
+    if (from.type === "crypto" && to.type === "fiat") {
+      // Crypto price in USD
+      const cg = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`
+      );
+      const cryptoUSD = cg.data?.[from.id]?.usd;
+      if (!cryptoUSD) return setResult(null);
+
+      // USD → target fiat
+      const fx = await axios.get(
+        `https://api.frankfurter.app/latest?from=USD&to=${to.symbol}`
+      );
+      const usdToFiat = fx.data?.rates?.[to.symbol];
+      if (!usdToFiat) return setResult(null);
+
+      setResult(Number(amount) * cryptoUSD * usdToFiat);
+      return;
+    }
+
+    /* ---------------------- 5. FIAT → CRYPTO -------------------- */
+    if (from.type === "fiat" && to.type === "crypto") {
+      // fiat → USD
+      const fx = await axios.get(
+        `https://api.frankfurter.app/latest?from=${from.symbol}&to=USD`
+      );
+      const fiatToUSD = fx.data?.rates?.USD;
+      if (!fiatToUSD) return setResult(null);
+
+      // crypto price in USD
+      const cg = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${to.id}&vs_currencies=usd`
+      );
+      const cryptoUSD = cg.data?.[to.id]?.usd;
+      if (!cryptoUSD) return setResult(null);
+
+      setResult((Number(amount) * fiatToUSD) / cryptoUSD);
+      return;
+    }
+
+    /* ---------------------- 6. CRYPTO → CRYPTO ------------------ */
+    if (from.type === "crypto" && to.type === "crypto") {
+      const cg = await axios.get(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${from.id},${to.id}&vs_currencies=usd`
+      );
+
+      const fromUSD = cg.data?.[from.id]?.usd;
+      const toUSD   = cg.data?.[to.id]?.usd;
+      if (!fromUSD || !toUSD) return setResult(null);
+
+      setResult((Number(amount) * fromUSD) / toUSD);
+      return;
+    }
+  };
+
+
+  /* Auto-refresh every 10sec */
+  useEffect(() => {
+    fetchRate();
+    const timer = setInterval(fetchRate, 10000);
+    return () => clearInterval(timer);
+  }, [fromCoin, toCoin, amount]);
+
+
+  /* Dropdown selection */
+  const applySelection = (coin: Item, side: "from" | "to") => {
+    if (side === "from") setFromCoin(coin);
+    else setToCoin(coin);
+
+    setOpenDropdown(null);
+    setSearch("");
+  };
+
+
+  /* Swap button */
+  const swapCoins = () => {
+    if (!fromCoin || !toCoin) return;
+    const tmp = fromCoin;
+    setFromCoin(toCoin);
+    setToCoin(tmp);
+  };
+
+
+  /* ======================== UI ========================== */
+
+  return (
+    <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px" }}>
+
+      {/* AMOUNT */}
+      <h3>AMOUNT</h3>
+      <input
+        value={amount}
+        onChange={(e) => handleAmount(e.target.value)}
+        style={{
+          width: "420px",
+          padding: "18px",
+          borderRadius: "12px",
+          border: "1px solid var(--card-border)",
+          background: "var(--card-bg)",
+          fontSize: "22px",
+          marginBottom: "6px",
+        }}
+      />
+
+      {isInvalid && (
+        <div style={{ color: "red", fontSize: "14px", marginBottom: "20px" }}>
+          Enter a Number Greater than 0
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: "26px", alignItems: "center" }}>
+
+        {/* FROM */}
+        <div style={{ position: "relative" }}>
+          <h3>FROM</h3>
+
+          <div
+            className="selector-box"
+            onClick={() =>
+              setOpenDropdown(openDropdown === "from" ? null : "from")
+            }
+          >
+            {fromCoin && (
+              <>
+                <img className="selector-img" src={fromCoin.image} />
+                <div>
+                  <div className="selector-symbol">{fromCoin.symbol}</div>
+                  <div className="selector-name">{fromCoin.name}</div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {openDropdown === "from" && (
+            <div className="dropdown-panel" ref={panelRef}>
+              <input
+                className="dropdown-search"
+                placeholder="Search..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+
+              {filtered.map((coin) => {
+                const disabled = toCoin?.id === coin.id;
+                return (
+                  <div
+                    key={coin.id}
+                    className={"dropdown-row " + (disabled ? "dropdown-disabled" : "")}
+                    onClick={() => !disabled && applySelection(coin, "from")}
+                  >
+                    <img className="dropdown-flag" src={coin.image} />
+                    <span className="dropdown-symbol">{coin.symbol}</span>
+                    {coin.name}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* SWAP ICON */}
+        <div className="swap-circle" onClick={swapCoins}>
+          <div className="swap-icon"></div>
+        </div>
+
+        {/* TO */}
+        <div style={{ position: "relative" }}>
+          <h3>TO</h3>
+
+          <div
+            className="selector-box"
+            onClick={() =>
+              setOpenDropdown(openDropdown === "to" ? null : "to")
+            }
+          >
+            {toCoin && (
+              <>
+                <img className="selector-img" src={toCoin.image} />
+                <div>
+                  <div className="selector-symbol">{toCoin.symbol}</div>
+                  <div className="selector-name">{toCoin.name}</div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {openDropdown === "to" && (
+            <div className="dropdown-panel" ref={panelRef}>
+              <input
+                className="dropdown-search"
+                placeholder="Search..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+
+              {filtered.map((coin) => {
+                const disabled = fromCoin?.id === coin.id;
+                return (
+                  <div
+                    key={coin.id}
+                    className={"dropdown-row " + (disabled ? "dropdown-disabled" : "")}
+                    onClick={() => !disabled && applySelection(coin, "to")}
+                  >
+                    <img className="dropdown-flag" src={coin.image} />
+                    <span className="dropdown-symbol">{coin.symbol}</span>
+                    {coin.name}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+      </div>
+
+
+      {/* RESULT */}
+      {result !== null && !isInvalid && fromCoin && toCoin && (
+        <div style={{ textAlign: "center", marginTop: "40px" }}>
+          <div style={{ fontSize: "22px", opacity: 0.7 }}>
+            {`1 ${fromCoin.symbol} → ${toCoin.symbol}`}
+          </div>
+
+          <div
+            style={{
+              fontSize: "70px",
+              fontWeight: 700,
+              marginTop: "10px",
+            }}
+          >
+            {result.toFixed(4)} {toCoin.symbol}
+          </div>
+
+          <div
+            style={{
+              opacity: 0.6,
+              marginTop: "10px",
+              fontSize: "22px",
+            }}
+          >
+            {`1 ${fromCoin.symbol} = ${(result /
+              Number(amount)).toFixed(6)} ${toCoin.symbol}`}
+            <br />
+            {`1 ${toCoin.symbol} = ${(1 /
+              (result / Number(amount))).toFixed(6)} ${fromCoin.symbol}`}
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
 }
