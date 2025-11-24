@@ -8,6 +8,7 @@ import {
   CrosshairMode,
 } from "lightweight-charts";
 
+// ---------------- FIAT LIST (FIXED FLAG SIZES) ----------------
 interface Item {
   id: string;
   symbol: string;
@@ -17,11 +18,11 @@ interface Item {
 }
 
 const fiatList: Item[] = [
-  { id: "usd", symbol: "USD", name: "US Dollar", type: "fiat", image: "https://flagcdn.com/us.svg" },
-  { id: "eur", symbol: "EUR", name: "Euro", type: "fiat", image: "https://flagcdn.com/eu.svg" },
-  { id: "gbp", symbol: "GBP", name: "British Pound", type: "fiat", image: "https://flagcdn.com/gb.svg" },
-  { id: "cad", symbol: "CAD", name: "Canadian Dollar", type: "fiat", image: "https://flagcdn.com/ca.svg" },
-  { id: "aud", symbol: "AUD", name: "Australian Dollar", type: "fiat", image: "https://flagcdn.com/au.svg" }
+  { id: "usd", symbol: "USD", name: "US Dollar", type: "fiat", image: "https://flagcdn.com/32x24/us.png" },
+  { id: "eur", symbol: "EUR", name: "Euro", type: "fiat", image: "https://flagcdn.com/32x24/eu.png" },
+  { id: "gbp", symbol: "GBP", name: "British Pound", type: "fiat", image: "https://flagcdn.com/32x24/gb.png" },
+  { id: "cad", symbol: "CAD", name: "Canadian Dollar", type: "fiat", image: "https://flagcdn.com/32x24/ca.png" },
+  { id: "aud", symbol: "AUD", name: "Australian Dollar", type: "fiat", image: "https://flagcdn.com/32x24/au.png" }
 ];
 
 export default function Page() {
@@ -34,19 +35,20 @@ export default function Page() {
 
   const [fromCoin, setFromCoin] = useState<Item | null>(null);
   const [toCoin, setToCoin] = useState<Item | null>(null);
-  const [result, setResult] = useState<number | null>(null);
 
+  const [result, setResult] = useState<number | null>(null);
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
+
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  // ----- CHART -----
+  // ---------------- CHART ----------------
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
-
   const [range, setRange] = useState("30");
 
-  // CLOSE DROPDOWN ON CLICK OUTSIDE
+
+  // ---------------- CLOSE DROPDOWN OUTSIDE ----------------
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
@@ -57,7 +59,8 @@ export default function Page() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // LOAD CRYPTO LIST
+
+  // ---------------- LOAD COINGECKO COINS ----------------
   useEffect(() => {
     axios
       .get(
@@ -74,20 +77,21 @@ export default function Page() {
 
         const combined = [...fiatList, ...cryptoItems];
         setAllCoins(combined);
-
         setFromCoin(cryptoItems.find((c) => c.symbol === "BTC") || combined[0]);
         setToCoin(fiatList.find((c) => c.symbol === "USD") || combined[1]);
       })
       .catch(console.error);
   }, []);
 
-  // FILTER SEARCH RESULTS
+
+  // ---------------- SEARCH FILTER ----------------
   useEffect(() => {
     if (!search) {
       setFiltered(allCoins);
       return;
     }
     const q = search.toLowerCase();
+
     setFiltered(
       allCoins.filter(
         (c) =>
@@ -97,7 +101,8 @@ export default function Page() {
     );
   }, [search, allCoins]);
 
-  // AMOUNT INPUT
+
+  // ---------------- AMOUNT ----------------
   const handleAmount = (v: string) => {
     if (/^[0-9]*\.?[0-9]*$/.test(v)) {
       setAmount(v);
@@ -105,7 +110,8 @@ export default function Page() {
     }
   };
 
-  // FETCH RATE
+
+  // ---------------- FETCH RATE ----------------
   const fetchRate = async () => {
     if (!fromCoin || !toCoin) return;
     if (isInvalid || Number(amount) <= 0) {
@@ -117,7 +123,7 @@ export default function Page() {
     const to = toCoin;
 
     try {
-      // ---- FIAT → FIAT ----
+      // FIAT → FIAT
       if (from.type === "fiat" && to.type === "fiat") {
         const fx = await axios.get(
           `https://api.frankfurter.app/latest?from=${from.symbol}&to=${to.symbol}`
@@ -127,7 +133,7 @@ export default function Page() {
         return;
       }
 
-      // ---- CRYPTO → USD ----
+      // CRYPTO → USD
       if (from.type === "crypto" && to.symbol === "USD") {
         const cg = await axios.get(
           `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`
@@ -137,18 +143,18 @@ export default function Page() {
         return;
       }
 
-      // ---- USD → CRYPTO ----
+      // USD → CRYPTO
       if (from.symbol === "USD" && to.type === "crypto") {
-        const usdAmount = Number(amount);
+        const usd_amt = Number(amount);
         const cg = await axios.get(
           `https://api.coingecko.com/api/v3/simple/price?ids=${to.id}&vs_currencies=usd`
         );
         const cryptoUSD = cg.data?.[to.id]?.usd;
-        setResult(usdAmount / cryptoUSD);
+        setResult(usd_amt / cryptoUSD);
         return;
       }
 
-      // ---- CRYPTO → FIAT ----
+      // CRYPTO → FIAT
       if (from.type === "crypto" && to.type === "fiat") {
         const cg = await axios.get(
           `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`
@@ -164,7 +170,7 @@ export default function Page() {
         return;
       }
 
-      // ---- FIAT → CRYPTO ----
+      // FIAT → CRYPTO
       if (from.type === "fiat" && to.type === "crypto") {
         const fx = await axios.get(
           `https://api.frankfurter.app/latest?from=${from.symbol}&to=USD`
@@ -180,24 +186,36 @@ export default function Page() {
         return;
       }
 
-      // ---- CRYPTO → CRYPTO ----
+      // CRYPTO → CRYPTO
       const cg = await axios.get(
         `https://api.coingecko.com/api/v3/simple/price?ids=${from.id},${to.id}&vs_currencies=usd`
       );
       const fromUSD = cg.data?.[from.id]?.usd;
       const toUSD = cg.data?.[to.id]?.usd;
+
       setResult((Number(amount) * fromUSD) / toUSD);
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error(err);
     }
   };
 
   useEffect(() => {
     fetchRate();
-    const t = setInterval(fetchRate, 8000);
-    return () => clearInterval(t);
+    const interval = setInterval(fetchRate, 8000);
+    return () => clearInterval(interval);
   }, [fromCoin, toCoin, amount]);
 
+
+  // ---------------- SWAP ----------------
+  const swapCoins = () => {
+    if (!fromCoin || !toCoin) return;
+    const tmp = fromCoin;
+    setFromCoin(toCoin);
+    setToCoin(tmp);
+  };
+
+
+  // ---------------- APPLY SELECTION ----------------
   const applySelection = (coin: Item, side: "from" | "to") => {
     if (side === "from") setFromCoin(coin);
     else setToCoin(coin);
@@ -206,65 +224,46 @@ export default function Page() {
     setSearch("");
   };
 
-  const swapCoins = () => {
-    if (!fromCoin || !toCoin) return;
-    const tmp = fromCoin;
-    setFromCoin(toCoin);
-    setToCoin(tmp);
-  };
 
-  // ----- FETCH HISTORICAL -----
+  // ---------------- LOAD HISTORY (CHART) ----------------
   const loadHistory = async () => {
     if (!fromCoin || !toCoin) return;
 
     try {
-      // both fiat → no chart
-      if (fromCoin.type === "fiat" && toCoin.type === "fiat") {
-        return;
-      }
+      // hide chart for fiat → fiat
+      if (fromCoin.type === "fiat" && toCoin.type === "fiat") return;
 
       const url = `https://api.coingecko.com/api/v3/coins/${fromCoin.id}/market_chart?vs_currency=${toCoin.symbol.toLowerCase()}&days=${range}`;
 
       const res = await axios.get(url);
       const raw = res.data.prices || [];
 
-      const data = raw
-        .map((p: any) => ({
-          time: Math.floor(p[0] / 1000),
-          value: p[1],
-        }))
-        .filter((d: any) => d.value !== null);
+      const data = raw.map((p: any) => ({
+        time: Math.floor(p[0] / 1000),
+        value: p[1]
+      }));
 
       if (!chartContainerRef.current) return;
 
       // cleanup old chart
       if (chartRef.current) {
         chartRef.current.remove();
-        chartRef.current = null;
-        seriesRef.current = null;
       }
 
-      // create chart (v4 syntax)
       const chart = createChart(chartContainerRef.current, {
         width: chartContainerRef.current.clientWidth,
         height: 320,
         layout: {
           background: { type: ColorType.Solid, color: "#ffffff" },
-          textColor: "#000",
+          textColor: "#111",
         },
         grid: {
           vertLines: { color: "#eee" },
           horzLines: { color: "#eee" },
         },
-        crosshair: {
-          mode: CrosshairMode.Normal,
-        },
-        timeScale: {
-          borderColor: "#ccc",
-        },
-        rightPriceScale: {
-          borderColor: "#ccc",
-        },
+        crosshair: { mode: CrosshairMode.Normal },
+        timeScale: { borderColor: "#ddd" },
+        rightPriceScale: { borderColor: "#ddd" }
       });
 
       const area = chart.addAreaSeries({
@@ -278,15 +277,15 @@ export default function Page() {
 
       chartRef.current = chart;
       seriesRef.current = area;
-
     } catch (err) {
-      console.error("History load error:", err);
+      console.error("Chart error", err);
     }
   };
 
   useEffect(() => {
     loadHistory();
   }, [fromCoin, toCoin, range]);
+
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -301,16 +300,19 @@ export default function Page() {
 
       {/* FROM */}
       <h3 className="text-xl font-bold mt-8">FROM</h3>
+
       <div className="relative mt-2">
         <div
           className="border p-4 rounded-lg flex items-center justify-between cursor-pointer"
-          onClick={() =>
-            setOpenDropdown(openDropdown === "from" ? null : "from")
-          }
+          onClick={() => setOpenDropdown(openDropdown === "from" ? null : "from")}
         >
           <div className="flex items-center gap-3">
             {fromCoin && (
-              <img src={fromCoin.image} className="w-6 h-6 rounded-full" />
+              <img
+                src={fromCoin.image}
+                className="rounded-full"
+                style={{ width: fromCoin.type === "fiat" ? 32 : 32, height: fromCoin.type === "fiat" ? 24 : 32 }}
+              />
             )}
             <span className="font-semibold">{fromCoin?.symbol}</span>
           </div>
@@ -337,7 +339,11 @@ export default function Page() {
                   toCoin?.id === coin.id ? "opacity-40 pointer-events-none" : ""
                 }`}
               >
-                <img src={coin.image} className="w-6 h-6 rounded-full" />
+                <img
+                  src={coin.image}
+                  className="rounded-full"
+                  style={{ width: coin.type === "fiat" ? 32 : 32, height: coin.type === "fiat" ? 24 : 32 }}
+                />
                 <span className="font-semibold">{coin.symbol}</span>
                 <span className="text-gray-500">{coin.name}</span>
               </div>
@@ -358,6 +364,7 @@ export default function Page() {
 
       {/* TO */}
       <h3 className="text-xl font-bold">TO</h3>
+
       <div className="relative mt-2">
         <div
           className="border p-4 rounded-lg flex items-center justify-between cursor-pointer"
@@ -365,7 +372,11 @@ export default function Page() {
         >
           <div className="flex items-center gap-3">
             {toCoin && (
-              <img src={toCoin.image} className="w-6 h-6 rounded-full" />
+              <img
+                src={toCoin.image}
+                className="rounded-full"
+                style={{ width: toCoin.type === "fiat" ? 32 : 32, height: toCoin.type === "fiat" ? 24 : 32 }}
+              />
             )}
             <span className="font-semibold">{toCoin?.symbol}</span>
           </div>
@@ -389,12 +400,14 @@ export default function Page() {
                 key={coin.id}
                 onClick={() => applySelection(coin, "to")}
                 className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-100 ${
-                  fromCoin?.id === coin.id
-                    ? "opacity-40 pointer-events-none"
-                    : ""
+                  fromCoin?.id === coin.id ? "opacity-40 pointer-events-none" : ""
                 }`}
               >
-                <img src={coin.image} className="w-6 h-6 rounded-full" />
+                <img
+                  src={coin.image}
+                  className="rounded-full"
+                  style={{ width: coin.type === "fiat" ? 32 : 32, height: coin.type === "fiat" ? 24 : 32 }}
+                />
                 <span className="font-semibold">{coin.symbol}</span>
                 <span className="text-gray-500">{coin.name}</span>
               </div>
@@ -417,16 +430,15 @@ export default function Page() {
           <div className="text-gray-500 text-lg mt-2">
             1 {fromCoin.symbol} = {(result / Number(amount)).toFixed(6)} {toCoin.symbol}
             <br />
-            1 {toCoin.symbol} = {(1 / (result / Number(amount))).toFixed(6)}{" "}
-            {fromCoin.symbol}
+            1 {toCoin.symbol} = {(1 / (result / Number(amount))).toFixed(6)} {fromCoin.symbol}
           </div>
         </div>
       )}
 
-      {/* ----- SPACING ----- */}
+      {/* SPACE */}
       <div className="my-10"></div>
 
-      {/* ----- CHART SECTION (A: directly under result) ----- */}
+      {/* CHART TITLE */}
       {fromCoin && toCoin && (
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold">
@@ -438,7 +450,7 @@ export default function Page() {
         </div>
       )}
 
-      {/* TIME RANGE BUTTONS */}
+      {/* RANGE BUTTONS */}
       <div className="flex justify-center gap-2 mb-4">
         {[
           { d: "1", t: "24H" },
@@ -460,7 +472,7 @@ export default function Page() {
         ))}
       </div>
 
-      {/* CHART CONTAINER */}
+      {/* CHART */}
       <div
         ref={chartContainerRef}
         className="w-full h-[320px] border rounded-lg"
