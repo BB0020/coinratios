@@ -52,9 +52,6 @@ const allCoins: Coin[] = [
 // Component
 // ----------------------
 export default function Page() {
-  // ----------------------
-  // UI State
-  // ----------------------
   const [amount, setAmount] = useState("1");
   const [search, setSearch] = useState("");
 
@@ -77,9 +74,6 @@ export default function Page() {
   const toPanelRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // ----------------------
-  // Close dropdown on outside click
-  // ----------------------
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (openDropdown === "from") {
@@ -99,9 +93,6 @@ export default function Page() {
     return () => document.removeEventListener("mousedown", handler);
   }, [openDropdown]);
 
-  // ----------------------
-  // Swap coins
-  // ----------------------
   const handleSwap = () => {
     if (fromCoin && toCoin) {
       setRotated(!rotated);
@@ -112,9 +103,6 @@ export default function Page() {
     }
   };
 
-  // ----------------------
-  // Filter dropdown search
-  // ----------------------
   useEffect(() => {
     if (!search) {
       setFiltered(allCoins);
@@ -131,9 +119,6 @@ export default function Page() {
     );
   }, [search]);
 
-  // ----------------------
-  // Dropdown Panel
-  // ----------------------
   const renderDropdown = (type: "from" | "to") => (
     <div
       className="dropdown-panel"
@@ -166,9 +151,6 @@ export default function Page() {
     </div>
   );
 
-  // ----------------------
-  // Fetch conversion rate
-  // ----------------------
   async function fetchRate(from: Coin, to: Coin) {
     try {
       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
@@ -184,9 +166,6 @@ export default function Page() {
     }
   }
 
-  // ----------------------
-  // Recalculate whenever or amount changes
-  // ----------------------
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
     if (amount === "" || Number(amount) <= 0) return;
@@ -194,9 +173,6 @@ export default function Page() {
     fetchRate(fromCoin, toCoin);
   }, [fromCoin, toCoin, amount]);
 
-  // ----------------------
-  // Format result block
-  // ----------------------
   const renderResult = () => {
     if (!fromCoin || !toCoin || result === null) return null;
 
@@ -247,9 +223,6 @@ export default function Page() {
     );
   };
 
-  // ----------------------
-  // Convert range to day count
-  // ----------------------
   function rangeToDays(range: string) {
     switch (range) {
       case "24H": return 1;
@@ -263,9 +236,6 @@ export default function Page() {
     }
   }
 
-  // ----------------------
-  // Fetch chart data
-  // ----------------------
   async function fetchHistory(id: string, vs: string, range: string) {
     try {
       const days = rangeToDays(range);
@@ -288,9 +258,6 @@ export default function Page() {
     }
   }
 
-  // ----------------------
-  // Chart builder
-  // ----------------------
   useEffect(() => {
     if (!chartContainerRef.current) return;
     if (!fromCoin || !toCoin) return;
@@ -341,9 +308,6 @@ export default function Page() {
     };
   }, [fromCoin, toCoin, range]);
 
-  // ----------------------
-  // Range Buttons
-  // ----------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y", "ALL"];
 
@@ -378,9 +342,6 @@ export default function Page() {
     );
   };
 
-  // ----------------------
-  // Render
-  // ----------------------
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "28px" }}>
 
@@ -436,7 +397,7 @@ export default function Page() {
         </div>
 
         {/* ---------------- FROM ---------------- */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
           <h3>FROM</h3>
 
           <div
@@ -496,7 +457,7 @@ export default function Page() {
         </div>
 
         {/* ---------------- TO ---------------- */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
           <h3>TO</h3>
 
           <div
@@ -524,13 +485,10 @@ export default function Page() {
         </div>
       </div>
 
-      {/* ---------------------- RESULT ---------------------- */}
       {renderResult()}
 
-      {/* ---------------------- RANGE BUTTONS ---------------------- */}
       <RangeButtons />
 
-      {/* ---------------------- CHART ---------------------- */}
       <div
         ref={chartContainerRef}
         style={{

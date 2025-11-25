@@ -38,7 +38,7 @@ h1, h2, h3 {
 }
 
 /* ------------------------------------------------------ */
-/* Swap Arrow — Straight arrows stacked vertically */
+/* Swap Arrow */
 /* ------------------------------------------------------ */
 
 .swap-circle {
@@ -73,7 +73,6 @@ h1, h2, h3 {
   transform: rotate(180deg);
 }
 
-/* Top arrow → */
 .swap-icon::before {
   content: "→";
   font-size: 22px;
@@ -83,7 +82,6 @@ h1, h2, h3 {
   line-height: 12px;
 }
 
-/* Bottom arrow ← */
 .swap-icon::after {
   content: "←";
   font-size: 22px;
@@ -93,7 +91,6 @@ h1, h2, h3 {
   line-height: 12px;
 }
 
-/* Hover arrows turn white */
 .swap-circle:hover .swap-icon::before,
 .swap-circle:hover .swap-icon::after {
   color: white;
@@ -113,6 +110,9 @@ h1, h2, h3 {
   align-items: center;
   width: 420px;
   transition: opacity 0.2s;
+  
+  /* 🔥 REQUIRED FIX to anchor dropdown-panel */
+  position: relative;
 }
 
 .selector-img {
@@ -133,7 +133,6 @@ h1, h2, h3 {
   opacity: 0.7;
 }
 
-/* Dropdown Panel */
 .dropdown-panel {
   position: absolute;
   top: 100%;
@@ -171,7 +170,7 @@ h1, h2, h3 {
 
 .dropdown-flag {
   width: 28px;
-  height: 20px;
+ 	height: 20px;
   border-radius: 4px;
   margin-right: 12px;
   object-fit: cover;
@@ -182,7 +181,6 @@ h1, h2, h3 {
   margin-right: 6px;
 }
 
-/* Disabled dropdown item */
 .dropdown-disabled {
   opacity: 0.4;
   cursor: not-allowed;
