@@ -15,7 +15,7 @@ interface Coin {
 }
 
 // ----------------------
-// Coin List (expandable)
+// Coin List
 // ----------------------
 const allCoins: Coin[] = [
   {
@@ -55,59 +55,49 @@ export default function Page() {
   // ----------------------
   // UI State
   // ----------------------
-
-  // Amount
   const [amount, setAmount] = useState("1");
-
-  // Search text inside dropdown
   const [search, setSearch] = useState("");
 
-  // Default FROM = BTC
   const [fromCoin, setFromCoin] = useState<Coin | null>(
     allCoins.find((c) => c.id === "bitcoin") || null
   );
-
-  // Default TO = USD
   const [toCoin, setToCoin] = useState<Coin | null>(
     allCoins.find((c) => c.id === "usd") || null
   );
 
-  // Dropdown search results
   const [filtered, setFiltered] = useState<Coin[]>(allCoins);
-
-  // Which dropdown is open?
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
 
-  // Swap animation state
   const [rotated, setRotated] = useState(false);
-
-  // Conversion result
   const [result, setResult] = useState<number | null>(null);
 
-  // Controls "loading..." state for rate fetching
-  const [loadingRate, setLoadingRate] = useState(false);
-
-  // Chart range: 24H / 7D / 1M / 3M / 6M / 1Y / ALL
   const [range, setRange] = useState("24H");
 
-  // Chart ref for lightweight-charts
-  const chartRef = useRef<HTMLDivElement | null>(null);
+  const fromPanelRef = useRef<HTMLDivElement | null>(null);
+  const toPanelRef = useRef<HTMLDivElement | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Dropdown close detection
-  const panelRef = useRef<HTMLDivElement | null>(null);
   // ----------------------
-  // Close dropdown when clicking outside
+  // Close dropdown on outside click
   // ----------------------
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpenDropdown(null);
+      if (openDropdown === "from") {
+        if (fromPanelRef.current && !fromPanelRef.current.contains(e.target as Node)) {
+          setOpenDropdown(null);
+        }
+      }
+
+      if (openDropdown === "to") {
+        if (toPanelRef.current && !toPanelRef.current.contains(e.target as Node)) {
+          setOpenDropdown(null);
+        }
       }
     };
 
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [openDropdown]);
 
   // ----------------------
   // Swap coins
@@ -118,12 +108,12 @@ export default function Page() {
       const temp = fromCoin;
       setFromCoin(toCoin);
       setToCoin(temp);
-      setResult(null); // force recalculation
+      setResult(null);
     }
   };
 
   // ----------------------
-  // Dropdown Search Filtering
+  // Filter dropdown search
   // ----------------------
   useEffect(() => {
     if (!search) {
@@ -142,10 +132,13 @@ export default function Page() {
   }, [search]);
 
   // ----------------------
-  // Dropdown Panel Component
+  // Dropdown Panel
   // ----------------------
   const renderDropdown = (type: "from" | "to") => (
-    <div className="dropdown-panel" ref={panelRef}>
+    <div
+      className="dropdown-panel"
+      ref={type === "from" ? fromPanelRef : toPanelRef}
+    >
       <input
         className="dropdown-search"
         placeholder="Search..."
@@ -172,12 +165,11 @@ export default function Page() {
       ))}
     </div>
   );
-  // ----------------------
-  // Fetch conversion rate (CoinGecko)
-  // ----------------------
-  const fetchRate = async (from: Coin, to: Coin) => {
-    setLoadingRate(true);
 
+  // ----------------------
+  // Fetch conversion rate
+  // ----------------------
+  async function fetchRate(from: Coin, to: Coin) {
     try {
       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
       const res = await fetch(url);
@@ -190,22 +182,20 @@ export default function Page() {
     } catch (err) {
       console.error("Price fetch error:", err);
     }
-
-    setLoadingRate(false);
-  };
+  }
 
   // ----------------------
-  // Recalculate whenever fromCoin / toCoin / amount changes
+  // Recalculate whenever or amount changes
   // ----------------------
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    if (isNaN(Number(amount)) || Number(amount) <= 0) return;
+    if (amount === "" || Number(amount) <= 0) return;
 
     fetchRate(fromCoin, toCoin);
   }, [fromCoin, toCoin, amount]);
 
   // ----------------------
-  // Result Display Block (CoinGecko Style)
+  // Format result block
   // ----------------------
   const renderResult = () => {
     if (!fromCoin || !toCoin || result === null) return null;
@@ -214,12 +204,10 @@ export default function Page() {
 
     return (
       <div style={{ textAlign: "center", marginTop: "50px" }}>
-        {/* Title */}
         <div style={{ fontSize: "22px", opacity: 0.7 }}>
           1 {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
-        {/* Main Result */}
         <div
           style={{
             fontSize: "64px",
@@ -235,7 +223,6 @@ export default function Page() {
           {toCoin.symbol}
         </div>
 
-        {/* Secondary ratios */}
         <div
           style={{
             opacity: 0.7,
@@ -259,8 +246,9 @@ export default function Page() {
       </div>
     );
   };
+
   // ----------------------
-  // Convert range into day counts
+  // Convert range to day count
   // ----------------------
   function rangeToDays(range: string) {
     switch (range) {
@@ -276,7 +264,7 @@ export default function Page() {
   }
 
   // ----------------------
-  // Fetch historical prices (CoinGecko market_chart)
+  // Fetch chart data
   // ----------------------
   async function fetchHistory(id: string, vs: string, range: string) {
     try {
@@ -301,22 +289,20 @@ export default function Page() {
   }
 
   // ----------------------
-  // Chart container
-  // ----------------------
-  const chartContainerRef = useRef<HTMLDivElement | null>(null);
-
-  // ----------------------
-  // Build chart on load or when FROM/TO/RANGE changes
+  // Chart builder
   // ----------------------
   useEffect(() => {
     if (!chartContainerRef.current) return;
     if (!fromCoin || !toCoin) return;
 
+    const container = chartContainerRef.current;
+
+    container.innerHTML = "";
+
     const isDark = document.documentElement.classList.contains("dark");
 
-    // Create chart
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
+    const chart = createChart(container, {
+      width: container.clientWidth,
       height: 360,
       layout: {
         background: { color: isDark ? "#1a1a1a" : "#ffffff" },
@@ -333,21 +319,20 @@ export default function Page() {
       },
     });
 
-    // Area series (gradient line)
     const series = chart.addAreaSeries({
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
       topColor: isDark ? "rgba(78,161,247,0.40)" : "rgba(59,130,246,0.40)",
       bottomColor: "rgba(0,0,0,0)",
     });
 
-    // Load data
     fetchHistory(fromCoin.id, toCoin.id, range).then((data) => {
       series.setData(data);
+      chart.timeScale().fitContent();
     });
 
-    // Resize on window change
     const handleResize = () =>
-      chart.resize(chartContainerRef.current!.clientWidth, 360);
+      chart.resize(container.clientWidth, 360);
+
     window.addEventListener("resize", handleResize);
 
     return () => {
@@ -357,20 +342,7 @@ export default function Page() {
   }, [fromCoin, toCoin, range]);
 
   // ----------------------
-  // Rebuild chart when theme changes
-  // ----------------------
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setRange((r) => r); // re-trigger chart build
-    });
-
-    observer.observe(document.documentElement, { attributes: true });
-
-    return () => observer.disconnect();
-  }, []);
-
-  // ----------------------
-  // Range selection buttons
+  // Range Buttons
   // ----------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y", "ALL"];
@@ -382,13 +354,20 @@ export default function Page() {
             key={r}
             onClick={() => setRange(r)}
             style={{
-              padding: "8px 14px",
+              padding: "10px 18px",
               margin: "0 6px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: range === r ? "var(--primary)" : "var(--card-bg)",
-              color: range === r ? "#fff" : "inherit",
+              borderRadius: "999px",
+              border:
+                range === r
+                  ? "1px solid #3b82f6"
+                  : "1px solid var(--card-border)",
+              background: range === r ? "#3b82f6" : "var(--card-bg)",
+              color: range === r ? "#ffffff" : "inherit",
+              boxShadow:
+                range === r ? "0 0 6px rgba(59,130,246,0.45)" : "none",
               cursor: "pointer",
+              fontSize: "15px",
+              fontWeight: 600,
               transition: "0.15s",
             }}
           >
@@ -398,16 +377,12 @@ export default function Page() {
       </div>
     );
   };
+
   // ----------------------
   // Render
   // ----------------------
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "28px" }}>
-      
-      {/* PAGE TITLE (Optional, you can remove or edit) */}
-      <h2 style={{ textAlign: "center", marginBottom: "10px" }}>
-        Crypto Conversion & Historical Chart
-      </h2>
 
       {/* ---------------------- TOP FLEX ROW ---------------------- */}
       <div
@@ -424,9 +399,18 @@ export default function Page() {
         {/* ---------------- AMOUNT ---------------- */}
         <div style={{ display: "flex", flexDirection: "column" }}>
           <h3>AMOUNT</h3>
+
           <input
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            inputMode="decimal"
+            onChange={(e) => {
+              const val = e.target.value;
+
+              if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                setAmount(val);
+              }
+            }}
             style={{
               width: "220px",
               padding: "16px",
@@ -436,6 +420,19 @@ export default function Page() {
               fontSize: "18px",
             }}
           />
+
+          {(amount === "" || Number(amount) <= 0) && (
+            <div
+              style={{
+                color: "red",
+                marginTop: "6px",
+                fontSize: "14px",
+                fontWeight: 500,
+              }}
+            >
+              Enter a number greater than 0
+            </div>
+          )}
         </div>
 
         {/* ---------------- FROM ---------------- */}
@@ -463,11 +460,10 @@ export default function Page() {
             )}
           </div>
 
-          {/* Dropdown */}
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* ---------------- SWAP BUTTON ---------------- */}
+        {/* ---------------- SWAP ---------------- */}
         <div
           onClick={handleSwap}
           className={rotated ? "swap-button-modern rotated" : "swap-button-modern"}
@@ -524,18 +520,17 @@ export default function Page() {
             )}
           </div>
 
-          {/* Dropdown */}
           {openDropdown === "to" && renderDropdown("to")}
         </div>
       </div>
 
-      {/* ---------------------- CONVERSION RESULT ---------------------- */}
+      {/* ---------------------- RESULT ---------------------- */}
       {renderResult()}
 
       {/* ---------------------- RANGE BUTTONS ---------------------- */}
       <RangeButtons />
 
-      {/* ---------------------- CHART CONTAINER ---------------------- */}
+      {/* ---------------------- CHART ---------------------- */}
       <div
         ref={chartContainerRef}
         style={{
