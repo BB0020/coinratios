@@ -1,193 +1,63 @@
-/* ------------------------------------------------------ */
-/* Theme Variables */
-/* ------------------------------------------------------ */
-
-:root {
-  --bg: #f7f8fa;
-  --text: #1a1a1a;
-  --card-bg: #ffffff;
-  --card-border: #dcdcdc;
-  --accent: #3b82f6;
-  --disabled: rgba(150,150,150,0.4);
-}
-
-html.dark {
-  --bg: #111111;
-  --text: #e6e6e6;
-  --card-bg: #1a1a1a;
-  --card-border: #333;
-  --accent: #4d9dff;
-  --disabled: rgba(255,255,255,0.3);
-}
-
-/* ------------------------------------------------------ */
-/* Base */
-/* ------------------------------------------------------ */
-
-body {
+/* ==== GLOBAL BASE STYLES ==== */
+* {
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Open Sans", sans-serif;
+  box-sizing: border-box;
 }
 
-h1, h2, h3 {
-  margin: 0;
+body {
+  background: #f7f8fa;
+  font-family: Arial, sans-serif;
+  color: #111;
 }
 
-/* ------------------------------------------------------ */
-/* Swap Arrow — Straight arrows stacked vertically */
-/* ------------------------------------------------------ */
-
-.swap-circle {
-  width: 55px;
-  height: 55px;
-  background: var(--card-bg);
-  border-radius: 50%;
-  border: 1px solid var(--card-border);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  transition: 0.25s ease;
+/* Prevents scrollbars from shifting layout */
+html, body {
+  overflow-x: hidden;
 }
 
-.swap-circle:hover {
-  background: var(--accent);
-}
-
-.swap-icon {
-  width: 28px;
-  height: 28px;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 4px 0;
-  transition: transform 0.35s ease;
-}
-
-.swap-circle:hover .swap-icon {
-  transform: rotate(180deg);
-}
-
-/* Top arrow → */
-.swap-icon::before {
-  content: "→";
-  font-size: 22px;
-  font-weight: bold;
-  color: var(--text);
-  text-align: center;
-  line-height: 12px;
-}
-
-/* Bottom arrow ← */
-.swap-icon::after {
-  content: "←";
-  font-size: 22px;
-  font-weight: bold;
-  color: var(--text);
-  text-align: center;
-  line-height: 12px;
-}
-
-/* Hover arrows turn white */
-.swap-circle:hover .swap-icon::before,
-.swap-circle:hover .swap-icon::after {
-  color: white;
-}
-
-/* ------------------------------------------------------ */
-/* Dropdown */
-/* ------------------------------------------------------ */
-
-.selector-box {
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  border-radius: 12px;
-  padding: 12px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  width: 420px;
-  transition: opacity 0.2s;
-}
-
-.selector-img {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin-right: 12px;
-}
-
-.selector-symbol {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.selector-name {
-  font-size: 14px;
-  opacity: 0.7;
-}
-
-/* Dropdown Panel */
+/* ==== DROPDOWN PANEL FIX ==== */
 .dropdown-panel {
   position: absolute;
   top: 100%;
-  margin-top: 6px;
-  width: 420px;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  max-height: 360px;
+  left: 0;
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  max-height: 260px;
   overflow-y: auto;
   z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
-.dropdown-search {
-  padding: 10px 12px;
-  border: none;
-  border-bottom: 1px solid var(--card-border);
-  width: 100%;
-  outline: none;
-  background: var(--card-bg);
-  color: var(--text);
-  font-size: 14px;
-}
-
-.dropdown-row {
-  padding: 10px 14px;
+.dropdown-panel div {
+  padding: 10px;
   display: flex;
   align-items: center;
+  gap: 10px;
+}
+
+.dropdown-panel div:hover {
+  background-color: #f0f0f0;
   cursor: pointer;
 }
 
-.dropdown-row:hover {
-  background: rgba(59, 130, 246, 0.08);
+/* Prevents the chart from breaking layout */
+.chart-container {
+  width: 100%;
+  height: 350px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: white;
+  border: 1px solid #ddd;
 }
 
-.dropdown-flag {
-  width: 28px;
-  height: 20px;
-  border-radius: 4px;
-  margin-right: 12px;
-  object-fit: cover;
-}
-
-.dropdown-symbol {
-  font-weight: 600;
-  margin-right: 6px;
-}
-
-/* Disabled dropdown item */
-.dropdown-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.dropdown-disabled:hover {
-  background: transparent;
+/* Arrow button fix */
+.rotate-90 {
+  transform: rotate(90deg);
+  font-size: 22px;
+  opacity: 0.6;
+  user-select: none;
 }
