@@ -354,26 +354,31 @@ export default function Page() {
 
   /* ----------------------
       HISTORY BUILDER
-  ------------------------ */
-  async function getHistory(from: Coin, to: Coin) {
-    const days = rangeToDays[range];
+------------------------ */
+async function getHistory(from: Coin, to: Coin) {
+  if (!from || !to) return [];
 
-    const [fromFull, toFull] = await Promise.all([
-      from.type === "crypto"
-        ? fetchCryptoHistory(fromCoin!.id, range)
-        : fetchFiatUSDHistory(from.symbol),
-      to.type === "crypto"
-        ? fetchCryptoHistory(toCoin!.id, range)
-        : fetchFiatUSDHistory(to.symbol),
-    ]);
+  const days = rangeToDays[range]; // <-- FIXED
 
-    const fromSlice = fromFull.slice(-days);
-    const toSlice   = toFull.slice(-days);
+  const [fromFull, toFull] = await Promise.all([
+    from.type === "crypto"
+      ? fetchCryptoHistory(from.id, range)   // <-- FIXED
+      : fetchFiatUSDHistory(from.symbol),
 
-    const merged = mergeNearest(fromSlice, toSlice);
-    lastData.current = merged;
-    return merged;
-  }
+    to.type === "crypto"
+      ? fetchCryptoHistory(to.id, range)     // <-- FIXED
+      : fetchFiatUSDHistory(to.symbol),
+  ]);
+
+  // DO NOT slice to 1 point (breaks 24H chart)
+  const fromSlice = fromFull;
+  const toSlice   = toFull;
+
+  const merged = mergeNearest(fromSlice, toSlice);
+  lastData.current = merged;
+  return merged;
+}
+
 
   /* ----------------------
       SWAP BUTTON
@@ -442,7 +447,7 @@ export default function Page() {
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (ts: UTCTimestamp) => formatXAxisLabel(ts as number),
+        tickMarkFormatter: (t: UTCTimestamp) => formatXAxisLabel(Number(t)),
       },
     });
 
@@ -479,7 +484,7 @@ export default function Page() {
         return;
       }
 
-      const ts = (param.time as UTCTimestamp) * 1000;
+      const ts = Number(param.time) * 1000;
 
       const str = new Date(ts).toLocaleString(undefined, {
         hour: "2-digit",
