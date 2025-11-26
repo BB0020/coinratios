@@ -11,9 +11,9 @@ interface Coin {
   type: "crypto" | "fiat";
 }
 
-/* ------------------------------------------
-   FIAT LIST (top 20) sorted alphabetically
------------------------------------------- */
+/* ------------------------------------------------------
+   20 Major Fiat Currencies (alphabetized)
+------------------------------------------------------ */
 const fiatList: Coin[] = [
   { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
   { id: "brl", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
@@ -36,7 +36,7 @@ const fiatList: Coin[] = [
   { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
 ];
 
-/* USD separate because USD is pinned #1 always */
+/* USD gets pinned as position #1 */
 const USD: Coin = {
   id: "usd",
   symbol: "USD",
@@ -47,6 +47,9 @@ const USD: Coin = {
 
 export default function Page() {
 
+  /* ------------------------------------------------------
+     STATE
+  ------------------------------------------------------ */
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
@@ -56,36 +59,42 @@ export default function Page() {
 
   const [amount, setAmount] = useState("1");
   const [result, setResult] = useState<number | null>(null);
+  const [range, setRange] = useState("24H");
+
+  const [theme, setTheme] = useState("light");
 
   const fromPanelRef = useRef<HTMLDivElement | null>(null);
   const toPanelRef = useRef<HTMLDivElement | null>(null);
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const lastValidData = useRef<any[]>([]);
-  const [range, setRange] = useState("24H");
 
-  const [theme, setTheme] = useState("light");
+  function handleSwap() {
+  if (!fromCoin || !toCoin) return;
+  const temp = fromCoin;
+  setFromCoin(toCoin);
+  setToCoin(temp);
+}
 
-  /* Theme watcher */
+  /* Watch theme */
   useEffect(() => {
-    const observer = new MutationObserver(() => {
+    const obs = new MutationObserver(() => {
       setTheme(document.documentElement.className);
     });
-    observer.observe(document.documentElement, { attributes: true });
-    return () => observer.disconnect();
+    obs.observe(document.documentElement, { attributes: true });
+    return () => obs.disconnect();
   }, []);
 
-  /* ------------------------------------------
-     Load crypto list + merge fiat alphabetically
-  ------------------------------------------ */
+  /* ------------------------------------------------------
+     LOAD CRYPTO LIST + INSERT FIAT ALPHABETICALLY
+  ------------------------------------------------------ */
   useEffect(() => {
     async function loadCoins() {
       const res = await fetch(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false"
+        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
       );
       const data = await res.json();
 
-      // Convert cryptos
       const cryptos: Coin[] = data.map((c: any) => ({
         id: c.id,
         symbol: c.symbol.toUpperCase(),
@@ -94,37 +103,32 @@ export default function Page() {
         type: "crypto",
       }));
 
-      // ● Step 1: Cryptos sorted by MC already
-      // ● Step 2: Alphabetical fiat list insertion
-      const sortedFiat = [...fiatList].sort((a, b) =>
+      const sortedFiats = [...fiatList].sort((a, b) =>
         a.symbol.localeCompare(b.symbol)
       );
 
-      // Insert fiat into crypto list at alphabetical positions
-      const mixed: Coin[] = [...cryptos];
-      for (const fiat of sortedFiat) {
-        const index = mixed.findIndex((coin) =>
+      const mixed = [...cryptos];
+      for (const fiat of sortedFiats) {
+        const idx = mixed.findIndex((coin) =>
           fiat.symbol.localeCompare(coin.symbol) < 0
         );
-        if (index === -1) mixed.push(fiat);
-        else mixed.splice(index, 0, fiat);
+        if (idx === -1) mixed.push(fiat);
+        else mixed.splice(idx, 0, fiat);
       }
 
-      // Prepend USD as #1
       const finalList = [USD, ...mixed];
 
       setAllCoins(finalList);
-
-      setFromCoin(finalList.find((c) => c.id === "bitcoin") || cryptos[0]);
+      setFromCoin(finalList.find((c) => c.id === "bitcoin") || finalList[1]);
       setToCoin(USD);
     }
 
     loadCoins();
   }, []);
 
-  /* ------------------------------------------
-     Click outside to close dropdown
-  ------------------------------------------ */
+  /* ------------------------------------------------------
+     CLICK OUTSIDE TO CLOSE DROPDOWNS
+  ------------------------------------------------------ */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (openDropdown === "from" && fromPanelRef.current && !fromPanelRef.current.contains(e.target as Node)) {
@@ -140,140 +144,61 @@ export default function Page() {
     return () => document.removeEventListener("mousedown", handler);
   }, [openDropdown]);
 
-  /* ------------------------------------------
-     Filtering list
-  ------------------------------------------ */
-  const filteredCoins = (input: string) => {
-    if (!input) return allCoins;
-    const s = input.toLowerCase();
-    return allCoins.filter(
-      (c) =>
-        c.symbol.toLowerCase().includes(s) ||
-        c.name.toLowerCase().includes(s)
-    );
-  };
+  /* ------------------------------------------------------
+     UNIVERSAL USD-BASELINE PRICE RESOLUTION
+     Convert ANY asset to USD historically + realtime
+  ------------------------------------------------------ */
 
-  /* ------------------------------------------
-     Fetch FX rate (Frankfurter)
-  ------------------------------------------ */
-  async function fxRate(from: string, to: string) {
-    const res = await fetch(
-      `https://api.frankfurter.app/latest?from=${from}&to=${to}`
+  /* Realtime: crypto → USD */
+  async function cryptoToUSD_now(id: string) {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`
     );
-    const data = await res.json();
-    return data.rates?.[to] || 1;
+    const d = await r.json();
+    return d[id]?.usd ?? 0;
   }
 
-  /* ------------------------------------------
-     Fetch crypto price in USD
-  ------------------------------------------ */
-  async function cryptoToUSD(cryptoId: string) {
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${cryptoId}&vs_currencies=usd`
-    );
-    const data = await res.json();
-    return data[cryptoId]?.usd || 0;
+  /* Realtime: fiat → USD (Frankfurter returns USD→FIAT, so invert when needed) */
+  async function fiatToUSD_now(symbol: string) {
+    if (symbol === "USD") return 1;
+    const r = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${symbol}`);
+    const d = await r.json();
+    const rate = d.rates?.[symbol] ?? 0;
+    return 1 / rate; // (USD->FIAT) inverted = FIAT->USD
   }
 
-  /* ------------------------------------------
-     Compute result for ANY pair
-  ------------------------------------------ */
-  async function computeResult(from: Coin, to: Coin) {
+  /* Get realtime result for ANY pair using USD baseline */
+  async function computeResult() {
+    if (!fromCoin || !toCoin) return;
+
     const amt = Number(amount);
-    if (!amt || amt <= 0) return;
+    if (!amt || amt <= 0) return setResult(null);
 
-    // Case 1: Crypto → Crypto
-    if (from.type === "crypto" && to.type === "crypto") {
-      const res = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`
-      );
-      const data = await res.json();
-      const rate = data[from.id]?.[to.id] || 0;
-      setResult(rate * amt);
-      return;
-    }
+    let fromUSD = 0;
+    let toUSD = 0;
 
-    // Case 2: Crypto → Fiat
-    if (from.type === "crypto" && to.type === "fiat") {
-      const usd = await cryptoToUSD(from.id);
-      const usdToFiat = await fxRate("USD", to.symbol);
-      setResult(usd * usdToFiat * amt);
-      return;
-    }
+    fromUSD =
+      fromCoin.type === "crypto"
+        ? await cryptoToUSD_now(fromCoin.id)
+        : await fiatToUSD_now(fromCoin.symbol);
 
-    // Case 3: Fiat → Crypto
-    if (from.type === "fiat" && to.type === "crypto") {
-      const fiatToUSD = await fxRate(from.symbol, "USD");
-      const cryptoUSD = await cryptoToUSD(to.id);
-      const rate = (fiatToUSD / cryptoUSD) * amt;
-      setResult(rate);
-      return;
-    }
+    toUSD =
+      toCoin.type === "crypto"
+        ? await cryptoToUSD_now(toCoin.id)
+        : await fiatToUSD_now(toCoin.symbol);
 
-    // Case 4: Fiat → Fiat
-    if (from.type === "fiat" && to.type === "fiat") {
-      const r = await fxRate(from.symbol, to.symbol);
-      setResult(r * amt);
-    }
+    const finalRate = fromUSD / toUSD;
+    setResult(finalRate * amt);
   }
 
-  /* ------------------------------------------
-     Recompute result when needed
-  ------------------------------------------ */
   useEffect(() => {
-    if (fromCoin && toCoin) computeResult(fromCoin, toCoin);
+    if (!fromCoin || !toCoin) return;
+    computeResult();
   }, [fromCoin, toCoin, amount]);
 
-  /* ------------------------------------------
-     Swap
-  ------------------------------------------ */
-  const handleSwap = () => {
-    if (!fromCoin || !toCoin) return;
-    const temp = fromCoin;
-    setFromCoin(toCoin);
-    setToCoin(temp);
-  };
-
-  /* ------------------------------------------
-     HISTORY FETCHING for chart
-  ------------------------------------------ */
-  async function getCryptoHistory(id: string, days: number) {
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
-    );
-    const data = await res.json();
-    return data.prices?.map((p: any) => ({
-      time: Math.floor(p[0] / 1000),
-      value: p[1],
-    })) || [];
-  }
-
-  async function getFXHistory(from: string, to: string) {
-    const now = new Date();
-    const days = rangeToDays(range);
-    const start = new Date(now.getTime() - days * 86400000);
-    const results: any[] = [];
-
-    for (let d = 0; d < days; d++) {
-      const dt = new Date(start.getTime() + d * 86400000);
-      const iso = dt.toISOString().slice(0, 10);
-
-      const res = await fetch(
-        `https://api.frankfurter.app/${iso}?from=${from}&to=${to}`
-      );
-
-      const data = await res.json();
-      const rate = data?.rates?.[to] || null;
-
-      if (rate) {
-        results.push({
-          time: Math.floor(dt.getTime() / 1000),
-          value: rate,
-        });
-      }
-    }
-    return results;
-  }
+  /* ------------------------------------------------------
+     HISTORY FETCHING: USD BASELINE
+  ------------------------------------------------------ */
 
   function rangeToDays(r: string) {
     switch (r) {
@@ -287,88 +212,109 @@ export default function Page() {
     }
   }
 
-  /* ------------------------------------------
-     Build chart history for ANY pair
-  ------------------------------------------ */
-  async function computeHistory(from: Coin, to: Coin) {
-    const days = rangeToDays(range);
-
-    // Crypto → Crypto
-    if (from.type === "crypto" && to.type === "crypto") {
-      const A = await getCryptoHistory(from.id, days);
-      const B = await getCryptoHistory(to.id, days);
-
-      if (!A.length || !B.length) return lastValidData.current;
-
-      const map: any[] = [];
-      let i = 0;
-      while (i < A.length && i < B.length) {
-        if (A[i].time === B[i].time) {
-          map.push({ time: A[i].time, value: A[i].value / B[i].value });
-          i++;
-        } else {
-          i++;
-        }
-      }
-      lastValidData.current = map;
-      return map;
-    }
-
-    // Crypto → Fiat
-    if (from.type === "crypto" && to.type === "fiat") {
-      const usdHist = await getCryptoHistory(from.id, days);
-      const fx = await getFXHistory("USD", to.symbol);
-
-      const out: any[] = [];
-      let i = 0;
-      while (i < usdHist.length && i < fx.length) {
-        if (usdHist[i].time === fx[i].time) {
-          out.push({
-            time: usdHist[i].time,
-            value: usdHist[i].value * fx[i].value,
-          });
-          i++;
-        } else i++;
-      }
-      lastValidData.current = out;
-      return out;
-    }
-
-    // Fiat → Crypto
-    if (from.type === "fiat" && to.type === "crypto") {
-      const fx = await getFXHistory(from.symbol, "USD");
-      const crypto = await getCryptoHistory(to.id, days);
-
-      const out: any[] = [];
-      let i = 0;
-
-      while (i < fx.length && i < crypto.length) {
-        if (fx[i].time === crypto[i].time) {
-          out.push({
-            time: fx[i].time,
-            value: fx[i].value / crypto[i].value,
-          });
-          i++;
-        } else i++;
-      }
-      lastValidData.current = out;
-      return out;
-    }
-
-    // Fiat → Fiat
-    if (from.type === "fiat" && to.type === "fiat") {
-      const fx = await getFXHistory(from.symbol, to.symbol);
-      lastValidData.current = fx;
-      return fx;
-    }
+  /* Crypto → USD history */
+  async function cryptoToUSD_history(id: string, days: number) {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+    );
+    const data = await res.json();
+    return data.prices?.map((p: any) => ({
+      time: Math.floor(p[0] / 1000),
+      value: p[1],
+    })) ?? [];
   }
 
-  /* ------------------------------------------
-     Chart rebuild
-  ------------------------------------------ */
+  /* Fiat → USD history (daily) */
+  async function fiatToUSD_history(symbol: string, days: number) {
+    if (symbol === "USD") {
+      const arr: any[] = [];
+      const now = new Date();
+      for (let i = 0; i < days; i++) {
+        const t = new Date(now.getTime() - i * 86400000);
+        arr.push({
+          time: Math.floor(t.getTime() / 1000),
+          value: 1,
+        });
+      }
+      return arr.reverse();
+    }
+
+    const out: any[] = [];
+    const now = new Date();
+    const start = new Date(now.getTime() - days * 86400000);
+
+    for (let d = 0; d < days; d++) {
+      const dt = new Date(start.getTime() + d * 86400000);
+      const iso = dt.toISOString().slice(0, 10);
+
+      const r = await fetch(
+        `https://api.frankfurter.app/${iso}?from=USD&to=${symbol}`
+      );
+
+      const data = await r.json();
+      const usdToFiat = data?.rates?.[symbol] ?? null;
+
+      if (usdToFiat) {
+        out.push({
+          time: Math.floor(dt.getTime() / 1000),
+          value: 1 / usdToFiat, // invert USD→FIAT to FIAT→USD
+        });
+      }
+    }
+
+    return out;
+  }
+
+  /* Nearest timestamp merging */
+  function mergeNearest(base: any[], other: any[], combine: (a: number, b: number) => number) {
+    const out: any[] = [];
+    let j = 0;
+
+    for (let i = 0; i < base.length; i++) {
+      while (
+        j < other.length - 1 &&
+        Math.abs(other[j + 1].time - base[i].time) <
+          Math.abs(other[j].time - base[i].time)
+      ) {
+        j++;
+      }
+
+      out.push({
+        time: base[i].time,
+        value: combine(base[i].value, other[j].value),
+      });
+    }
+    return out;
+  }
+
+  /* Universal history builder */
+  async function computeHistory() {
+    if (!fromCoin || !toCoin) return [];
+
+    const days = rangeToDays(range);
+
+    const fromHist =
+      fromCoin.type === "crypto"
+        ? await cryptoToUSD_history(fromCoin.id, days)
+        : await fiatToUSD_history(fromCoin.symbol, days);
+
+    const toHist =
+      toCoin.type === "crypto"
+        ? await cryptoToUSD_history(toCoin.id, days)
+        : await fiatToUSD_history(toCoin.symbol, days);
+
+    if (!fromHist.length || !toHist.length) return lastValidData.current;
+
+    const merged = mergeNearest(fromHist, toHist, (a, b) => a / b);
+    lastValidData.current = merged;
+    return merged;
+  }
+
+  /* ------------------------------------------------------
+     CHART
+  ------------------------------------------------------ */
   useEffect(() => {
-    if (!chartContainerRef.current) return;
-    if (!fromCoin || !toCoin) return;
+    if (!chartContainerRef.current || !fromCoin || !toCoin) return;
 
     const container = chartContainerRef.current;
     container.innerHTML = "";
@@ -377,10 +323,10 @@ export default function Page() {
 
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 380,
+      height: 390,
       layout: {
-        background: { color: isDark ? "#111111" : "#ffffff" },
-        textColor: isDark ? "#eeeeee" : "#1a1a1a",
+        background: { color: isDark ? "#111" : "#fff" },
+        textColor: isDark ? "#eee" : "#1a1a1a",
       },
       grid: {
         vertLines: { color: isDark ? "#2a2a2a" : "#e3e3e3" },
@@ -390,12 +336,12 @@ export default function Page() {
 
     const series = chart.addAreaSeries({
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark ? "rgba(78,161,247,0.30)" : "rgba(59,130,246,0.30)",
+      topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
       bottomColor: "rgba(0,0,0,0)",
     });
 
-    computeHistory(fromCoin, toCoin).then((data) => {
-      if (data && data.length) {
+    computeHistory().then((data) => {
+      if (data.length) {
         series.setData(data);
         lastValidData.current = data;
       } else {
@@ -404,44 +350,51 @@ export default function Page() {
       chart.timeScale().fitContent();
     });
 
-    const resize = () => {
-      chart.resize(container.clientWidth, 380);
-      chart.timeScale().fitContent();
+    const handleResize = () => {
+      chart.resize(container.clientWidth, 390);
     };
 
-    window.addEventListener("resize", resize);
+    window.addEventListener("resize", handleResize);
     return () => {
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize", handleResize);
       chart.remove();
     };
   }, [fromCoin, toCoin, range, theme]);
 
-  /* ------------------------------------------
-     RENDER
-  ------------------------------------------ */
-  const renderRow = (coin: Coin, type: "from" | "to", search: string) => {
-    const isDisabled =
+  /* ------------------------------------------------------
+     RENDER HELPERS
+  ------------------------------------------------------ */
+
+  const filteredCoins = (input: string) => {
+    if (!input) return allCoins;
+    const s = input.toLowerCase();
+    return allCoins.filter(
+      (c) =>
+        c.symbol.toLowerCase().includes(s) ||
+        c.name.toLowerCase().includes(s)
+    );
+  };
+
+  const renderRow = (coin: Coin, type: "from" | "to") => {
+    const disabled =
       (type === "from" && coin.id === toCoin?.id) ||
       (type === "to" && coin.id === fromCoin?.id);
 
-    const isSelected =
+    const selected =
       (type === "from" && coin.id === fromCoin?.id) ||
       (type === "to" && coin.id === toCoin?.id);
 
-    let className = "dropdown-row";
-    if (isSelected) className += " dropdown-selected";
-    if (isDisabled) className += " dropdown-disabled";
+    let cls = "dropdown-row";
+    if (selected) cls += " dropdown-selected";
+    if (disabled) cls += " dropdown-disabled";
 
     return (
       <div
         key={coin.id}
-        className={className}
+        className={cls}
         onClick={() => {
-          if (isDisabled) return;
-
-          if (type === "from") setFromCoin(coin);
-          if (type === "to") setToCoin(coin);
-
+          if (disabled) return;
+          type === "from" ? setFromCoin(coin) : setToCoin(coin);
           setOpenDropdown(null);
           setFromSearch("");
           setToSearch("");
@@ -470,43 +423,33 @@ export default function Page() {
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        {filteredCoins(search).map((coin) =>
-          renderRow(coin, type, search)
-        )}
+        {filteredCoins(search).map((coin) => renderRow(coin, type))}
       </div>
     );
   };
 
   const renderResult = () => {
     if (!result || !fromCoin || !toCoin) return null;
+
     const baseRate = result / Number(amount);
 
     return (
       <div style={{ textAlign: "center", marginTop: "40px" }}>
-        <div style={{ fontSize: "24px", opacity: 0.6 }}>
+        <div style={{ fontSize: "22px", opacity: 0.65 }}>
           1 {fromCoin.symbol} → {toCoin.symbol}
         </div>
-
-        <div
-          style={{
-            fontSize: "58px",
-            fontWeight: 700,
-            marginTop: "10px",
-          }}
-        >
-          {result.toLocaleString(undefined, {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 8,
-          })}{" "}
+        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
+          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
           {toCoin.symbol}
         </div>
 
-        <div style={{ opacity: 0.65, marginTop: "10px", fontSize: "19px" }}>
-          1 {fromCoin.symbol} = {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+        <div style={{ marginTop: "10px", opacity: 0.7 }}>
+          1 {fromCoin.symbol} ={" "}
+          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+          {toCoin.symbol}
           <br />
-          1 {toCoin.symbol} = {(1 / baseRate).toLocaleString(undefined, {
-            maximumFractionDigits: 8,
-          })}{" "}
+          1 {toCoin.symbol} ={" "}
+          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
           {fromCoin.symbol}
         </div>
       </div>
@@ -530,16 +473,21 @@ export default function Page() {
     );
   };
 
+  /* ------------------------------------------------------
+     RENDER PAGE
+  ------------------------------------------------------ */
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "24px" }}>
+      
+      {/* TOP AREA */}
       <div
         style={{
           display: "flex",
           justifyContent: "center",
-          alignItems: "flex-end",
+          alignItems: "flex-start",
           gap: "32px",
           flexWrap: "wrap",
-          marginTop: "20px",
+          marginTop: "10px",
         }}
       >
         {/* AMOUNT */}
@@ -555,6 +503,19 @@ export default function Page() {
             }}
             className="amount-input"
           />
+
+          {(amount === "" || Number(amount) <= 0) && (
+            <div
+              style={{
+                color: "red",
+                marginTop: "6px",
+                fontSize: "14px",
+                fontWeight: 500,
+              }}
+            >
+              Enter a Number Greater than 0
+            </div>
+          )}
         </div>
 
         {/* FROM */}
@@ -573,11 +534,12 @@ export default function Page() {
               <div className="selector-name">{fromCoin?.name}</div>
             </div>
           </div>
+
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
         {/* SWAP */}
-        <div onClick={handleSwap} className="swap-circle" style={{ marginTop: "38px" }}>
+        <div onClick={handleSwap} style={{ marginTop: "38px" }} className="swap-circle">
           <div className="swap-icon" />
         </div>
 
@@ -597,6 +559,7 @@ export default function Page() {
               <div className="selector-name">{toCoin?.name}</div>
             </div>
           </div>
+
           {openDropdown === "to" && renderDropdown("to")}
         </div>
       </div>
@@ -605,6 +568,7 @@ export default function Page() {
 
       <RangeButtons />
 
+      {/* CHART */}
       <div
         ref={chartContainerRef}
         style={{
