@@ -3,183 +3,296 @@
 import { useEffect, useState, useRef } from "react";
 import { createChart } from "lightweight-charts";
 
-// ----------------------
-// Types
-// ----------------------
+/* -------------------------------------------------------------
+   TYPES
+------------------------------------------------------------- */
 interface Coin {
   id: string;
   symbol: string;
   name: string;
   image: string;
+  market_cap?: number; // only for crypto
   type: "crypto" | "fiat";
 }
 
-// ----------------------
-// Coin List (expandable)
-// ----------------------
-const allCoins: Coin[] = [
-  {
-    id: "bitcoin",
-    symbol: "BTC",
-    name: "Bitcoin",
-    image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
-    type: "crypto",
-  },
-  {
-    id: "ethereum",
-    symbol: "ETH",
-    name: "Ethereum",
-    image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png",
-    type: "crypto",
-  },
-  {
-    id: "usd",
-    symbol: "USD",
-    name: "US Dollar",
-    image: "https://flagcdn.com/us.svg",
-    type: "fiat",
-  },
-  {
-    id: "eur",
-    symbol: "EUR",
-    name: "Euro",
-    image: "https://flagcdn.com/eu.svg",
-    type: "fiat",
-  },
+/* -------------------------------------------------------------
+   FIAT LIST (20 TOTAL)
+   - USD is pinned separately later
+   - All others will be alphabetized
+------------------------------------------------------------- */
+const FIAT_LIST: Coin[] = [
+  { id: "eur", symbol: "EUR", name: "Euro", image: "https://flagcdn.com/eu.svg", type: "fiat" },
+  { id: "gbp", symbol: "GBP", name: "British Pound", image: "https://flagcdn.com/gb.svg", type: "fiat" },
+  { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
+  { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "https://flagcdn.com/ca.svg", type: "fiat" },
+  { id: "jpy", symbol: "JPY", name: "Japanese Yen", image: "https://flagcdn.com/jp.svg", type: "fiat" },
+  { id: "chf", symbol: "CHF", name: "Swiss Franc", image: "https://flagcdn.com/ch.svg", type: "fiat" },
+  { id: "nzd", symbol: "NZD", name: "New Zealand Dollar", image: "https://flagcdn.com/nz.svg", type: "fiat" },
+  { id: "sek", symbol: "SEK", name: "Swedish Krona", image: "https://flagcdn.com/se.svg", type: "fiat" },
+  { id: "nok", symbol: "NOK", name: "Norwegian Krone", image: "https://flagcdn.com/no.svg", type: "fiat" },
+  { id: "dkk", symbol: "DKK", name: "Danish Krone", image: "https://flagcdn.com/dk.svg", type: "fiat" },
+  { id: "hkd", symbol: "HKD", name: "Hong Kong Dollar", image: "https://flagcdn.com/hk.svg", type: "fiat" },
+  { id: "sgd", symbol: "SGD", name: "Singapore Dollar", image: "https://flagcdn.com/sg.svg", type: "fiat" },
+  { id: "cny", symbol: "CNY", name: "Chinese Yuan", image: "https://flagcdn.com/cn.svg", type: "fiat" },
+  { id: "inr", symbol: "INR", name: "Indian Rupee", image: "https://flagcdn.com/in.svg", type: "fiat" },
+  { id: "mxn", symbol: "MXN", name: "Mexican Peso", image: "https://flagcdn.com/mx.svg", type: "fiat" },
+  { id: "brl", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
+  { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
+  { id: "try", symbol: "TRY", name: "Turkish Lira", image: "https://flagcdn.com/tr.svg", type: "fiat" },
+  { id: "rub", symbol: "RUB", name: "Russian Ruble", image: "https://flagcdn.com/ru.svg", type: "fiat" },
 ];
 
-// ----------------------
-// Component
-// ----------------------
+/* -------------------------------------------------------------
+   USD PINNED SEPARATELY
+------------------------------------------------------------- */
+const USD_COIN: Coin = {
+  id: "usd",
+  symbol: "USD",
+  name: "US Dollar",
+  image: "https://flagcdn.com/us.svg",
+  type: "fiat",
+};
+
+/* -------------------------------------------------------------
+   COINGECKO FETCHER FOR TOP 250 CRYPTOS
+------------------------------------------------------------- */
+async function fetchTop250(): Promise<Coin[]> {
+  try {
+    const url =
+      "https://api.coingecko.com/api/v3/coins/markets" +
+      "?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false";
+
+    const res = await fetch(url);
+    const cryptos = await res.json();
+
+    return cryptos.map((c: any) => ({
+      id: c.id,
+      symbol: c.symbol.toUpperCase(),
+      name: c.name,
+      image: c.image,
+      market_cap: c.market_cap,
+      type: "crypto",
+    }));
+  } catch (err) {
+    console.error("Error fetching top 250:", err);
+    return [];
+  }
+}
+
+/* -------------------------------------------------------------
+   MERGE LIST → USD pinned → Fiat alphabetical → Crypto by market cap
+------------------------------------------------------------- */
+function buildFinalCoinList(crypto: Coin[]): Coin[] {
+  // Sort fiat (excluding USD) alphabetically
+  const sortedFiat = [...FIAT_LIST].sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+
+  // Sort crypto by market cap DESC
+  const sortedCrypto = [...crypto].sort((a, b) =>
+    (b.market_cap || 0) - (a.market_cap || 0)
+  );
+
+  return [USD_COIN, ...sortedFiat, ...sortedCrypto];
+}
+
 export default function Page() {
-  // ----------------------
-  // UI State
-  // ----------------------
+  /* -------------------------------------------------------------
+     STATE
+  ------------------------------------------------------------- */
+  const [allCoins, setAllCoins] = useState<Coin[]>([]);
+  const [loadingCoins, setLoadingCoins] = useState(true);
 
-  // Amount
-  const [amount, setAmount] = useState("1");
+  const [fromCoin, setFromCoin] = useState<Coin | null>(null);
+  const [toCoin, setToCoin] = useState<Coin | null>(null);
 
-  // Search text inside dropdown
-  const [search, setSearch] = useState("");
+  const [fromSearch, setFromSearch] = useState("");
+  const [toSearch, setToSearch] = useState("");
 
-  // Default FROM = BTC
-  const [fromCoin, setFromCoin] = useState<Coin | null>(
-    allCoins.find((c) => c.id === "bitcoin") || null
-  );
-
-  // Default TO = USD
-  const [toCoin, setToCoin] = useState<Coin | null>(
-    allCoins.find((c) => c.id === "usd") || null
-  );
-
-  // Dropdown search results
-  const [filtered, setFiltered] = useState<Coin[]>(allCoins);
-
-  // Which dropdown is open?
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
 
-  // Swap animation state
-  const [rotated, setRotated] = useState(false);
-
-  // Conversion result
+  const [amount, setAmount] = useState("1");
   const [result, setResult] = useState<number | null>(null);
 
-  // Controls "loading..." state for rate fetching
-  const [loadingRate, setLoadingRate] = useState(false);
+  const fromPanelRef = useRef<HTMLDivElement | null>(null);
+  const toPanelRef = useRef<HTMLDivElement | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Chart range: 24H / 7D / 1M / 3M / 6M / 1Y / ALL
   const [range, setRange] = useState("24H");
+  const lastValidData = useRef<any[]>([]);
 
-  // Chart ref for lightweight-charts
-  const chartRef = useRef<HTMLDivElement | null>(null);
+  const [theme, setTheme] = useState("light");
 
-  // Dropdown close detection
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  // ----------------------
-  // Close dropdown when clicking outside
-  // ----------------------
+  /* -------------------------------------------------------------
+     LOAD THEME FROM <html> WHEN CHANGED
+  ------------------------------------------------------------- */
+  useEffect(() => {
+    const apply = () => {
+      const cls = document.documentElement.className;
+      setTheme(cls === "dark" ? "dark" : "light");
+    };
+
+    apply();
+    const obs = new MutationObserver(apply);
+    obs.observe(document.documentElement, { attributes: true });
+
+    return () => obs.disconnect();
+  }, []);
+
+  /* -------------------------------------------------------------
+     FETCH + CACHE ALL COINS (24h)
+------------------------------------------------------------- */
+  useEffect(() => {
+    async function loadCoins() {
+      try {
+        const cached = localStorage.getItem("coins_cache");
+        const ts = localStorage.getItem("coins_cache_ts");
+        const now = Date.now();
+
+        if (cached && ts && now - Number(ts) < 24 * 60 * 60 * 1000) {
+          const parsed = JSON.parse(cached);
+          setAllCoins(parsed);
+        } else {
+          const top250 = await fetchTop250();
+          const finalList = buildFinalCoinList(top250);
+
+          localStorage.setItem("coins_cache", JSON.stringify(finalList));
+          localStorage.setItem("coins_cache_ts", now.toString());
+
+          setAllCoins(finalList);
+        }
+      } catch (err) {
+        console.error("Coin list error:", err);
+      } finally {
+        setLoadingCoins(false);
+      }
+    }
+
+    loadCoins();
+  }, []);
+  /* -------------------------------------------------------------
+     CLOSE DROPDOWNS ON OUTSIDE CLICK
+  ------------------------------------------------------------- */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpenDropdown(null);
+      if (openDropdown === "from") {
+        if (
+          fromPanelRef.current &&
+          !fromPanelRef.current.contains(e.target as Node)
+        ) {
+          setOpenDropdown(null);
+          setFromSearch("");
+        }
+      }
+
+      if (openDropdown === "to") {
+        if (
+          toPanelRef.current &&
+          !toPanelRef.current.contains(e.target as Node)
+        ) {
+          setOpenDropdown(null);
+          setToSearch("");
+        }
       }
     };
 
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  }, [openDropdown]);
 
-  // ----------------------
-  // Swap coins
-  // ----------------------
-  const handleSwap = () => {
-    if (fromCoin && toCoin) {
-      setRotated(!rotated);
-      const temp = fromCoin;
-      setFromCoin(toCoin);
-      setToCoin(temp);
-      setResult(null); // force recalculation
-    }
+  /* -------------------------------------------------------------
+     SEARCH FILTER
+  ------------------------------------------------------------- */
+  const filteredCoins = (search: string) => {
+    if (!search) return allCoins;
+    const s = search.toLowerCase();
+
+    return allCoins.filter(
+      (c) =>
+        c.name.toLowerCase().includes(s) ||
+        c.symbol.toLowerCase().includes(s)
+    );
   };
 
-  // ----------------------
-  // Dropdown Search Filtering
-  // ----------------------
-  useEffect(() => {
-    if (!search) {
-      setFiltered(allCoins);
-      return;
-    }
+  /* -------------------------------------------------------------
+     DROPDOWN ROW COMPONENT
+     - Symbol above name
+     - Logo left
+     - Selected highlight
+     - Disabled logic
+  ------------------------------------------------------------- */
+  const renderRow = (coin: Coin, type: "from" | "to") => {
+    const isDisabled =
+      (type === "from" && coin.id === toCoin?.id) ||
+      (type === "to" && coin.id === fromCoin?.id);
 
-    const s = search.toLowerCase();
-    setFiltered(
-      allCoins.filter(
-        (c) =>
-          c.name.toLowerCase().includes(s) ||
-          c.symbol.toLowerCase().includes(s)
-      )
-    );
-  }, [search]);
+    const isSelected =
+      (type === "from" && coin.id === fromCoin?.id) ||
+      (type === "to" && coin.id === toCoin?.id);
 
-  // ----------------------
-  // Dropdown Panel Component
-  // ----------------------
-  const renderDropdown = (type: "from" | "to") => (
-    <div className="dropdown-panel" ref={panelRef}>
-      <input
-        className="dropdown-search"
-        placeholder="Search..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+    let cls = "dropdown-row";
+    if (isSelected) cls += " dropdown-selected";
+    if (isDisabled) cls += " dropdown-disabled";
 
-      {filtered.map((coin) => (
-        <div
-          key={coin.id}
-          className="dropdown-row"
-          onClick={() => {
-            if (type === "from") setFromCoin(coin);
-            if (type === "to") setToCoin(coin);
+    return (
+      <div
+        key={coin.id}
+        className={cls}
+        onClick={() => {
+          if (isDisabled) return;
 
-            setOpenDropdown(null);
-            setResult(null);
-          }}
-        >
-          <img className="dropdown-flag" src={coin.image} />
+          if (type === "from") setFromCoin(coin);
+          if (type === "to") setToCoin(coin);
+
+          setOpenDropdown(null);
+          setFromSearch("");
+          setToSearch("");
+
+          // Instant refresh
+          const newFrom = type === "from" ? coin : fromCoin!;
+          const newTo = type === "to" ? coin : toCoin!;
+          fetchRate(newFrom, newTo);
+        }}
+      >
+        <img className="dropdown-flag" src={coin.image} />
+
+        <div className="dropdown-text">
           <span className="dropdown-symbol">{coin.symbol}</span>
-          {coin.name}
+          <span className="dropdown-name">{coin.name}</span>
         </div>
-      ))}
-    </div>
-  );
-  // ----------------------
-  // Fetch conversion rate (CoinGecko)
-  // ----------------------
-  const fetchRate = async (from: Coin, to: Coin) => {
-    setLoadingRate(true);
+      </div>
+    );
+  };
 
+  /* -------------------------------------------------------------
+     DROPDOWN PANEL (Search + Scroll + Rows)
+  ------------------------------------------------------------- */
+  const renderDropdown = (type: "from" | "to") => {
+    const search = type === "from" ? fromSearch : toSearch;
+    const setSearch = type === "from" ? setFromSearch : setToSearch;
+    const ref = type === "from" ? fromPanelRef : toPanelRef;
+
+    return (
+      <div className="dropdown-panel" ref={ref}>
+        <input
+          className="dropdown-search"
+          placeholder="Search..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        {filteredCoins(search).map((coin) => renderRow(coin, type))}
+      </div>
+    );
+  };
+
+  /* -------------------------------------------------------------
+     FETCH CONVERSION RATE
+  ------------------------------------------------------------- */
+  async function fetchRate(from: Coin, to: Coin) {
     try {
-      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
+      const url =
+        `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
       const res = await fetch(url);
       const data = await res.json();
 
@@ -190,23 +303,193 @@ export default function Page() {
     } catch (err) {
       console.error("Price fetch error:", err);
     }
+  }
 
-    setLoadingRate(false);
-  };
-
-  // ----------------------
-  // Recalculate whenever fromCoin / toCoin / amount changes
-  // ----------------------
+  /* -------------------------------------------------------------
+     RE-CALCULATE ON FROM/TO/AMOUNT CHANGE
+  ------------------------------------------------------------- */
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    if (isNaN(Number(amount)) || Number(amount) <= 0) return;
+    if (amount === "" || Number(amount) <= 0) return;
 
     fetchRate(fromCoin, toCoin);
   }, [fromCoin, toCoin, amount]);
 
-  // ----------------------
-  // Result Display Block (CoinGecko Style)
-  // ----------------------
+  /* -------------------------------------------------------------
+     SWAP BUTTON HANDLER
+  ------------------------------------------------------------- */
+  const handleSwap = () => {
+    if (!fromCoin || !toCoin) return;
+
+    const prevFrom = fromCoin;
+    const prevTo = toCoin;
+
+    setFromCoin(prevTo);
+    setToCoin(prevFrom);
+
+    // Instant update
+    fetchRate(prevTo, prevFrom);
+  };
+  /* -------------------------------------------------------------
+     RANGE → DAYS MAPPING
+  ------------------------------------------------------------- */
+  function rangeToDays(range: string) {
+    switch (range) {
+      case "24H": return 1;
+      case "7D": return 7;
+      case "1M": return 30;
+      case "3M": return 90;
+      case "6M": return 180;
+      case "1Y": return 365;
+      case "ALL": return 730; // 2 years
+      default: return 30;
+    }
+  }
+
+  /* -------------------------------------------------------------
+     HISTORICAL PRICE FETCHER
+  ------------------------------------------------------------- */
+  async function fetchHistory(id: string, vs: string, r: string) {
+    const days = rangeToDays(r);
+
+    const url =
+      `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
+      `?vs_currency=${vs}&days=${days}`;
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+
+      if (!data.prices || data.prices.length === 0) return [];
+
+      return data.prices.map((p: any) => ({
+        time: Math.floor(p[0] / 1000),
+        value: p[1],
+      }));
+    } catch (err) {
+      console.error("History fetch error:", err);
+      return [];
+    }
+  }
+
+  /* -------------------------------------------------------------
+     CHART CREATION + REBUILD
+     - Runs on: fromCoin, toCoin, range, theme
+     - NEVER blank (uses lastValidData as fallback)
+  ------------------------------------------------------------- */
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+    if (!fromCoin || !toCoin) return;
+
+    const container = chartContainerRef.current;
+
+    // Clear old chart
+    container.innerHTML = "";
+
+    const isDark = theme === "dark";
+
+    /* -----------------------------
+       Create chart
+    ----------------------------- */
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height: 360,
+      layout: {
+        background: { color: isDark ? "#1a1a1a" : "#ffffff" },
+        textColor: isDark ? "#e5e5e5" : "#1a1a1a",
+      },
+      grid: {
+        vertLines: { color: isDark ? "#2d2d2d" : "#ececec" },
+        horzLines: { color: isDark ? "#2d2d2d" : "#ececec" },
+      },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        borderVisible: false,
+      },
+    });
+
+    /* -----------------------------
+       Create series
+    ----------------------------- */
+    const series = chart.addAreaSeries({
+      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
+      topColor: isDark
+        ? "rgba(78,161,247,0.40)"
+        : "rgba(59,130,246,0.40)",
+      bottomColor: "rgba(0,0,0,0)",
+    });
+
+    /* -----------------------------
+       Load fresh history
+    ----------------------------- */
+    fetchHistory(fromCoin.id, toCoin.id, range).then((data) => {
+      if (data.length > 0) {
+        lastValidData.current = data;
+        series.setData(data);
+      } else {
+        // fallback: never blank
+        series.setData(lastValidData.current);
+      }
+
+      chart.timeScale().fitContent();
+    });
+
+    /* -----------------------------
+       Resize handler
+    ----------------------------- */
+    const handleResize = () => {
+      chart.resize(container.clientWidth, 360);
+      chart.timeScale().fitContent();
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart.remove();
+    };
+  }, [fromCoin, toCoin, range, theme]);
+
+  /* -------------------------------------------------------------
+     RANGE BUTTONS (UI + logic)
+  ------------------------------------------------------------- */
+  const RangeButtons = () => {
+    const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y", "ALL"];
+
+    return (
+      <div style={{ textAlign: "center", marginTop: "34px" }}>
+        {ranges.map((r) => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            style={{
+              padding: "10px 18px",
+              margin: "0 6px",
+              borderRadius: "999px",
+              border:
+                range === r
+                  ? "1px solid #3b82f6"
+                  : "1px solid var(--card-border)",
+              background: range === r ? "#3b82f6" : "var(--card-bg)",
+              color: range === r ? "#ffffff" : "var(--text)",
+              boxShadow:
+                range === r ? "0 0 7px rgba(59,130,246,0.45)" : "none",
+              cursor: "pointer",
+              fontSize: "15px",
+              fontWeight: 600,
+              transition: "0.15s",
+            }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    );
+  };
+  /* -------------------------------------------------------------
+     RESULT DISPLAY
+  ------------------------------------------------------------- */
   const renderResult = () => {
     if (!fromCoin || !toCoin || result === null) return null;
 
@@ -214,12 +497,10 @@ export default function Page() {
 
     return (
       <div style={{ textAlign: "center", marginTop: "50px" }}>
-        {/* Title */}
         <div style={{ fontSize: "22px", opacity: 0.7 }}>
           1 {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
-        {/* Main Result */}
         <div
           style={{
             fontSize: "64px",
@@ -235,7 +516,6 @@ export default function Page() {
           {toCoin.symbol}
         </div>
 
-        {/* Secondary ratios */}
         <div
           style={{
             opacity: 0.7,
@@ -259,157 +539,13 @@ export default function Page() {
       </div>
     );
   };
-  // ----------------------
-  // Convert range into day counts
-  // ----------------------
-  function rangeToDays(range: string) {
-    switch (range) {
-      case "24H": return 1;
-      case "7D": return 7;
-      case "1M": return 30;
-      case "3M": return 90;
-      case "6M": return 180;
-      case "1Y": return 365;
-      case "ALL": return 730;
-      default: return 30;
-    }
-  }
 
-  // ----------------------
-  // Fetch historical prices (CoinGecko market_chart)
-  // ----------------------
-  async function fetchHistory(id: string, vs: string, range: string) {
-    try {
-      const days = rangeToDays(range);
-      const url =
-        `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
-        `?vs_currency=${vs}&days=${days}`;
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (!data.prices) return [];
-
-      return data.prices.map((p: any) => ({
-        time: Math.floor(p[0] / 1000),
-        value: p[1],
-      }));
-    } catch (err) {
-      console.error("Historical fetch failed:", err);
-      return [];
-    }
-  }
-
-  // ----------------------
-  // Chart container
-  // ----------------------
-  const chartContainerRef = useRef<HTMLDivElement | null>(null);
-
-  // ----------------------
-  // Build chart on load or when FROM/TO/RANGE changes
-  // ----------------------
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-    if (!fromCoin || !toCoin) return;
-
-    const isDark = document.documentElement.classList.contains("dark");
-
-    // Create chart
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 360,
-      layout: {
-        background: { color: isDark ? "#1a1a1a" : "#ffffff" },
-        textColor: isDark ? "#e5e5e5" : "#1a1a1a",
-      },
-      grid: {
-        vertLines: { color: isDark ? "#2d2d2d" : "#ececec" },
-        horzLines: { color: isDark ? "#2d2d2d" : "#ececec" },
-      },
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-        borderVisible: false,
-      },
-    });
-
-    // Area series (gradient line)
-    const series = chart.addAreaSeries({
-      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark ? "rgba(78,161,247,0.40)" : "rgba(59,130,246,0.40)",
-      bottomColor: "rgba(0,0,0,0)",
-    });
-
-    // Load data
-    fetchHistory(fromCoin.id, toCoin.id, range).then((data) => {
-      series.setData(data);
-    });
-
-    // Resize on window change
-    const handleResize = () =>
-      chart.resize(chartContainerRef.current!.clientWidth, 360);
-    window.addEventListener("resize", handleResize);
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
-    };
-  }, [fromCoin, toCoin, range]);
-
-  // ----------------------
-  // Rebuild chart when theme changes
-  // ----------------------
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setRange((r) => r); // re-trigger chart build
-    });
-
-    observer.observe(document.documentElement, { attributes: true });
-
-    return () => observer.disconnect();
-  }, []);
-
-  // ----------------------
-  // Range selection buttons
-  // ----------------------
-  const RangeButtons = () => {
-    const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y", "ALL"];
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "30px" }}>
-        {ranges.map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            style={{
-              padding: "8px 14px",
-              margin: "0 6px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: range === r ? "var(--primary)" : "var(--card-bg)",
-              color: range === r ? "#fff" : "inherit",
-              cursor: "pointer",
-              transition: "0.15s",
-            }}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-    );
-  };
-  // ----------------------
-  // Render
-  // ----------------------
+  /* -------------------------------------------------------------
+     MAIN JSX LAYOUT
+  ------------------------------------------------------------- */
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "28px" }}>
-      
-      {/* PAGE TITLE (Optional, you can remove or edit) */}
-      <h2 style={{ textAlign: "center", marginBottom: "10px" }}>
-        Crypto Conversion & Historical Chart
-      </h2>
-
-      {/* ---------------------- TOP FLEX ROW ---------------------- */}
+      {/* TOP FLEX ROW */}
       <div
         style={{
           display: "flex",
@@ -421,12 +557,21 @@ export default function Page() {
           marginTop: "28px",
         }}
       >
-        {/* ---------------- AMOUNT ---------------- */}
+        {/* AMOUNT INPUT */}
         <div style={{ display: "flex", flexDirection: "column" }}>
           <h3>AMOUNT</h3>
+
           <input
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0.00"
+            inputMode="decimal"
+            onChange={(e) => {
+              const v = e.target.value;
+              // numbers + decimals only
+              if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) {
+                setAmount(v);
+              }
+            }}
             style={{
               width: "220px",
               padding: "16px",
@@ -434,108 +579,87 @@ export default function Page() {
               border: "1px solid var(--card-border)",
               background: "var(--card-bg)",
               fontSize: "18px",
+              color: "var(--text)",
             }}
           />
+
+          {(amount === "" || Number(amount) <= 0) && (
+            <div
+              style={{
+                color: "red",
+                marginTop: "6px",
+                fontSize: "14px",
+                fontWeight: 500,
+              }}
+            >
+              Enter a number greater than 0
+            </div>
+          )}
         </div>
 
-        {/* ---------------- FROM ---------------- */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        {/* FROM SELECTOR */}
+        <div
+          style={{ display: "flex", flexDirection: "column", position: "relative" }}
+        >
           <h3>FROM</h3>
 
           <div
             className="selector-box"
-            style={{ width: "260px", minHeight: "52px" }}
             onClick={() => {
               setOpenDropdown(openDropdown === "from" ? null : "from");
-              setSearch("");
+              setFromSearch("");
             }}
           >
-            {fromCoin ? (
-              <>
-                <img className="selector-img" src={fromCoin.image} />
-                <div>
-                  <div className="selector-symbol">{fromCoin.symbol}</div>
-                  <div className="selector-name">{fromCoin.name}</div>
-                </div>
-              </>
-            ) : (
-              <div style={{ opacity: 0.5 }}>Select coin…</div>
-            )}
+            <img className="selector-img" src={fromCoin?.image} />
+            <div className="selector-text">
+              <div className="selector-symbol">{fromCoin?.symbol}</div>
+              <div className="selector-name">{fromCoin?.name}</div>
+            </div>
           </div>
 
-          {/* Dropdown */}
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* ---------------- SWAP BUTTON ---------------- */}
+        {/* SWAP BUTTON */}
         <div
           onClick={handleSwap}
-          className={rotated ? "swap-button-modern rotated" : "swap-button-modern"}
-          style={{
-            width: "52px",
-            height: "52px",
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            border: "1px solid var(--card-border)",
-            background: "var(--card-bg)",
-            transition: "0.3s",
-            marginTop: "36px",
-          }}
+          className="swap-circle"
+          style={{ marginTop: "36px" }}
         >
-          <div
-            style={{
-              width: "22px",
-              height: "22px",
-              backgroundImage:
-                "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 24 24' stroke='currentColor' stroke-width='2' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 7h14l-4-4m4 4l-4 4'/%3E%3Cpath d='M17 17H3l4 4m-4-4l4-4'/%3E%3C/svg%3E\")",
-              backgroundSize: "contain",
-              backgroundRepeat: "no-repeat",
-              transform: rotated ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 0.35s ease",
-            }}
-          />
+          <div className="swap-icon" />
         </div>
 
-        {/* ---------------- TO ---------------- */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        {/* TO SELECTOR */}
+        <div
+          style={{ display: "flex", flexDirection: "column", position: "relative" }}
+        >
           <h3>TO</h3>
 
           <div
             className="selector-box"
-            style={{ width: "260px", minHeight: "52px" }}
             onClick={() => {
               setOpenDropdown(openDropdown === "to" ? null : "to");
-              setSearch("");
+              setToSearch("");
             }}
           >
-            {toCoin ? (
-              <>
-                <img className="selector-img" src={toCoin.image} />
-                <div>
-                  <div className="selector-symbol">{toCoin.symbol}</div>
-                  <div className="selector-name">{toCoin.name}</div>
-                </div>
-              </>
-            ) : (
-              <div style={{ opacity: 0.5 }}>Select coin…</div>
-            )}
+            <img className="selector-img" src={toCoin?.image} />
+            <div className="selector-text">
+              <div className="selector-symbol">{toCoin?.symbol}</div>
+              <div className="selector-name">{toCoin?.name}</div>
+            </div>
           </div>
 
-          {/* Dropdown */}
           {openDropdown === "to" && renderDropdown("to")}
         </div>
       </div>
 
-      {/* ---------------------- CONVERSION RESULT ---------------------- */}
+      {/* RESULT */}
       {renderResult()}
 
-      {/* ---------------------- RANGE BUTTONS ---------------------- */}
+      {/* RANGE BUTTONS */}
       <RangeButtons />
 
-      {/* ---------------------- CHART CONTAINER ---------------------- */}
+      {/* CHART */}
       <div
         ref={chartContainerRef}
         style={{
