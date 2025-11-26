@@ -176,22 +176,21 @@ export default function Page() {
    Runs once after allCoins is populated
 ------------------------------------------------------------- */
 useEffect(() => {
-  // Wait until the coin list is fully loaded
   if (allCoins.length === 0) return;
 
-  // Only run if both FROM and TO are still null
+  // Only run if no selection exists yet
   if (fromCoin !== null || toCoin !== null) return;
 
-  // Get default BTC (crypto) and USD (fiat) entries
   const btc = allCoins.find((c) => c.id === "bitcoin");
   const usd = allCoins.find((c) => c.id === "USD");
 
   if (btc && usd) {
     setFromCoin(btc);
     setToCoin(usd);
-    setAmount("1"); // Ensure auto-load works
+    setAmount("1");
   }
 }, [allCoins]);
+
 
 
   
