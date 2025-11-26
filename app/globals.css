@@ -108,11 +108,9 @@ h1, h2, h3 {
   cursor: pointer;
   display: flex;
   align-items: center;
-  width: 420px;
+  width: 260px;
   transition: opacity 0.2s;
-  
-  /* 🔥 REQUIRED FIX to anchor dropdown-panel */
-  position: relative;
+  position: relative; /* Required for dropdown positioning */
 }
 
 .selector-img {
@@ -133,11 +131,12 @@ h1, h2, h3 {
   opacity: 0.7;
 }
 
+/* Dropdown Panel */
 .dropdown-panel {
   position: absolute;
   top: 100%;
   margin-top: 6px;
-  width: 420px;
+  width: 260px; /* Must match selector width */
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 12px;
@@ -162,15 +161,32 @@ h1, h2, h3 {
   display: flex;
   align-items: center;
   cursor: pointer;
+  transition: background 0.15s;
 }
 
 .dropdown-row:hover {
-  background: rgba(59, 130, 246, 0.08);
+  background: rgba(59,130,246,0.15); /* B2 Hover */
+}
+
+/* SELECTED COIN */
+.dropdown-selected {
+  background: rgba(59,130,246,0.18); /* Slightly darker than hover */
+  border-radius: 8px;
+}
+
+/* DISABLED COIN */
+.dropdown-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dropdown-disabled:hover {
+  background: transparent !important;
 }
 
 .dropdown-flag {
   width: 28px;
- 	height: 20px;
+  height: 20px;
   border-radius: 4px;
   margin-right: 12px;
   object-fit: cover;
@@ -179,13 +195,4 @@ h1, h2, h3 {
 .dropdown-symbol {
   font-weight: 600;
   margin-right: 6px;
-}
-
-.dropdown-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.dropdown-disabled:hover {
-  background: transparent;
 }

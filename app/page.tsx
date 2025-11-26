@@ -3,9 +3,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createChart } from "lightweight-charts";
 
-// ----------------------
-// Types
-// ----------------------
 interface Coin {
   id: string;
   symbol: string;
@@ -14,9 +11,6 @@ interface Coin {
   type: "crypto" | "fiat";
 }
 
-// ----------------------
-// Coin List
-// ----------------------
 const allCoins: Coin[] = [
   {
     id: "bitcoin",
@@ -48,12 +42,12 @@ const allCoins: Coin[] = [
   },
 ];
 
-// ----------------------
-// Component
-// ----------------------
 export default function Page() {
   const [amount, setAmount] = useState("1");
-  const [search, setSearch] = useState("");
+
+  // Independent search fields
+  const [fromSearch, setFromSearch] = useState("");
+  const [toSearch, setToSearch] = useState("");
 
   const [fromCoin, setFromCoin] = useState<Coin | null>(
     allCoins.find((c) => c.id === "bitcoin") || null
@@ -62,29 +56,29 @@ export default function Page() {
     allCoins.find((c) => c.id === "usd") || null
   );
 
-  const [filtered, setFiltered] = useState<Coin[]>(allCoins);
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
 
-  const [rotated, setRotated] = useState(false);
   const [result, setResult] = useState<number | null>(null);
-
   const [range, setRange] = useState("24H");
 
   const fromPanelRef = useRef<HTMLDivElement | null>(null);
   const toPanelRef = useRef<HTMLDivElement | null>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (openDropdown === "from") {
         if (fromPanelRef.current && !fromPanelRef.current.contains(e.target as Node)) {
           setOpenDropdown(null);
+          setFromSearch("");
         }
       }
 
       if (openDropdown === "to") {
         if (toPanelRef.current && !toPanelRef.current.contains(e.target as Node)) {
           setOpenDropdown(null);
+          setToSearch("");
         }
       }
     };
@@ -93,9 +87,18 @@ export default function Page() {
     return () => document.removeEventListener("mousedown", handler);
   }, [openDropdown]);
 
+  const filteredCoins = (search: string) => {
+    if (!search) return allCoins;
+    const s = search.toLowerCase();
+    return allCoins.filter(
+      (c) =>
+        c.name.toLowerCase().includes(s) ||
+        c.symbol.toLowerCase().includes(s)
+    );
+  };
+
   const handleSwap = () => {
     if (fromCoin && toCoin) {
-      setRotated(!rotated);
       const temp = fromCoin;
       setFromCoin(toCoin);
       setToCoin(temp);
@@ -103,54 +106,7 @@ export default function Page() {
     }
   };
 
-  useEffect(() => {
-    if (!search) {
-      setFiltered(allCoins);
-      return;
-    }
-
-    const s = search.toLowerCase();
-    setFiltered(
-      allCoins.filter(
-        (c) =>
-          c.name.toLowerCase().includes(s) ||
-          c.symbol.toLowerCase().includes(s)
-      )
-    );
-  }, [search]);
-
-  const renderDropdown = (type: "from" | "to") => (
-    <div
-      className="dropdown-panel"
-      ref={type === "from" ? fromPanelRef : toPanelRef}
-    >
-      <input
-        className="dropdown-search"
-        placeholder="Search..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-
-      {filtered.map((coin) => (
-        <div
-          key={coin.id}
-          className="dropdown-row"
-          onClick={() => {
-            if (type === "from") setFromCoin(coin);
-            if (type === "to") setToCoin(coin);
-
-            setOpenDropdown(null);
-            setResult(null);
-          }}
-        >
-          <img className="dropdown-flag" src={coin.image} />
-          <span className="dropdown-symbol">{coin.symbol}</span>
-          {coin.name}
-        </div>
-      ))}
-    </div>
-  );
-
+  // Fetch price
   async function fetchRate(from: Coin, to: Coin) {
     try {
       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
@@ -169,59 +125,70 @@ export default function Page() {
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
     if (amount === "" || Number(amount) <= 0) return;
-
     fetchRate(fromCoin, toCoin);
   }, [fromCoin, toCoin, amount]);
 
-  const renderResult = () => {
-    if (!fromCoin || !toCoin || result === null) return null;
+  // Render dropdown row with disabled/highlight logic
+  const renderRow = (
+    coin: Coin,
+    type: "from" | "to",
+    search: string
+  ) => {
+    const isDisabled =
+      (type === "from" && coin.id === toCoin?.id) ||
+      (type === "to" && coin.id === fromCoin?.id);
 
-    const baseRate = result / Number(amount);
+    const isSelected =
+      (type === "from" && coin.id === fromCoin?.id) ||
+      (type === "to" && coin.id === toCoin?.id);
+
+    let className = "dropdown-row";
+
+    if (isDisabled) className += " dropdown-disabled";
+    else if (isSelected) className += " dropdown-selected";
 
     return (
-      <div style={{ textAlign: "center", marginTop: "50px" }}>
-        <div style={{ fontSize: "22px", opacity: 0.7 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
-        </div>
-
-        <div
-          style={{
-            fontSize: "64px",
-            fontWeight: 700,
-            marginTop: "12px",
-            lineHeight: "1.15",
-          }}
-        >
-          {result.toLocaleString(undefined, {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 8,
-          })}{" "}
-          {toCoin.symbol}
-        </div>
-
-        <div
-          style={{
-            opacity: 0.7,
-            marginTop: "14px",
-            fontSize: "20px",
-            lineHeight: "1.6",
-          }}
-        >
-          1 {fromCoin.symbol} ={" "}
-          {baseRate.toLocaleString(undefined, {
-            maximumFractionDigits: 8,
-          })}{" "}
-          {toCoin.symbol}
-          <br />
-          1 {toCoin.symbol} ={" "}
-          {(1 / baseRate).toLocaleString(undefined, {
-            maximumFractionDigits: 8,
-          })}{" "}
-          {fromCoin.symbol}
-        </div>
+      <div
+        key={coin.id}
+        className={className}
+        onClick={() => {
+          if (isDisabled) return;
+          if (type === "from") setFromCoin(coin);
+          if (type === "to") setToCoin(coin);
+          setOpenDropdown(null);
+          setFromSearch("");
+          setToSearch("");
+        }}
+      >
+        <img className="dropdown-flag" src={coin.image} />
+        <span className="dropdown-symbol">{coin.symbol}</span>
+        {coin.name}
       </div>
     );
   };
+
+  const renderDropdown = (type: "from" | "to") => {
+    const search = type === "from" ? fromSearch : toSearch;
+    const setSearch = type === "from" ? setFromSearch : setToSearch;
+    const ref = type === "from" ? fromPanelRef : toPanelRef;
+
+    return (
+      <div className="dropdown-panel" ref={ref}>
+        <input
+          className="dropdown-search"
+          placeholder="Search..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        {filteredCoins(search).map((coin) =>
+          renderRow(coin, type, search)
+        )}
+      </div>
+    );
+  };
+
+  // CHART ------------------------------------------------------------
 
   function rangeToDays(range: string) {
     switch (range) {
@@ -237,25 +204,18 @@ export default function Page() {
   }
 
   async function fetchHistory(id: string, vs: string, range: string) {
-    try {
-      const days = rangeToDays(range);
-      const url =
-        `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
-        `?vs_currency=${vs}&days=${days}`;
+    const days = rangeToDays(range);
+    const url =
+      `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
+      `?vs_currency=${vs}&days=${days}`;
 
-      const response = await fetch(url);
-      const data = await response.json();
+    const response = await fetch(url);
+    const data = await response.json();
 
-      if (!data.prices) return [];
-
-      return data.prices.map((p: any) => ({
-        time: Math.floor(p[0] / 1000),
-        value: p[1],
-      }));
-    } catch (err) {
-      console.error("Historical fetch failed:", err);
-      return [];
-    }
+    return data.prices?.map((p: any) => ({
+      time: Math.floor(p[0] / 1000),
+      value: p[1],
+    })) || [];
   }
 
   useEffect(() => {
@@ -263,7 +223,6 @@ export default function Page() {
     if (!fromCoin || !toCoin) return;
 
     const container = chartContainerRef.current;
-
     container.innerHTML = "";
 
     const isDark = document.documentElement.classList.contains("dark");
@@ -342,10 +301,60 @@ export default function Page() {
     );
   };
 
+  const renderResult = () => {
+    if (!fromCoin || !toCoin || result === null) return null;
+
+    const baseRate = result / Number(amount);
+
+    return (
+      <div style={{ textAlign: "center", marginTop: "50px" }}>
+        <div style={{ fontSize: "22px", opacity: 0.7 }}>
+          1 {fromCoin.symbol} → {toCoin.symbol}
+        </div>
+
+        <div
+          style={{
+            fontSize: "64px",
+            fontWeight: 700,
+            marginTop: "12px",
+            lineHeight: "1.15",
+          }}
+        >
+          {result.toLocaleString(undefined, {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 8,
+          })}{" "}
+          {toCoin.symbol}
+        </div>
+
+        <div
+          style={{
+            opacity: 0.7,
+            marginTop: "14px",
+            fontSize: "20px",
+            lineHeight: "1.6",
+          }}
+        >
+          1 {fromCoin.symbol} ={" "}
+          {baseRate.toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}{" "}
+          {toCoin.symbol}
+          <br />
+          1 {toCoin.symbol} ={" "}
+          {(1 / baseRate).toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}{" "}
+          {fromCoin.symbol}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "28px" }}>
 
-      {/* ---------------------- TOP FLEX ROW ---------------------- */}
+      {/* TOP FLEX */}
       <div
         style={{
           display: "flex",
@@ -357,7 +366,7 @@ export default function Page() {
           marginTop: "28px",
         }}
       >
-        {/* ---------------- AMOUNT ---------------- */}
+        {/* AMOUNT */}
         <div style={{ display: "flex", flexDirection: "column" }}>
           <h3>AMOUNT</h3>
 
@@ -367,7 +376,6 @@ export default function Page() {
             inputMode="decimal"
             onChange={(e) => {
               const val = e.target.value;
-
               if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
                 setAmount(val);
               }
@@ -396,89 +404,52 @@ export default function Page() {
           )}
         </div>
 
-        {/* ---------------- FROM ---------------- */}
+        {/* FROM */}
         <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
           <h3>FROM</h3>
 
           <div
             className="selector-box"
-            style={{ width: "260px", minHeight: "52px" }}
             onClick={() => {
               setOpenDropdown(openDropdown === "from" ? null : "from");
-              setSearch("");
+              setFromSearch("");
             }}
           >
-            {fromCoin ? (
-              <>
-                <img className="selector-img" src={fromCoin.image} />
-                <div>
-                  <div className="selector-symbol">{fromCoin.symbol}</div>
-                  <div className="selector-name">{fromCoin.name}</div>
-                </div>
-              </>
-            ) : (
-              <div style={{ opacity: 0.5 }}>Select coin…</div>
-            )}
+            <img className="selector-img" src={fromCoin?.image} />
+            <div>
+              <div className="selector-symbol">{fromCoin?.symbol}</div>
+              <div className="selector-name">{fromCoin?.name}</div>
+            </div>
           </div>
 
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* ---------------- SWAP ---------------- */}
+        {/* SWAP */}
         <div
           onClick={handleSwap}
-          className={rotated ? "swap-button-modern rotated" : "swap-button-modern"}
-          style={{
-            width: "52px",
-            height: "52px",
-            borderRadius: "50%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            border: "1px solid var(--card-border)",
-            background: "var(--card-bg)",
-            transition: "0.3s",
-            marginTop: "36px",
-          }}
+          className="swap-circle"
+          style={{ marginTop: "36px" }}
         >
-          <div
-            style={{
-              width: "22px",
-              height: "22px",
-              backgroundImage:
-                "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 24 24' stroke='currentColor' stroke-width='2' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 7h14l-4-4m4 4l-4 4'/%3E%3Cpath d='M17 17H3l4 4m-4-4l4-4'/%3E%3C/svg%3E\")",
-              backgroundSize: "contain",
-              backgroundRepeat: "no-repeat",
-              transform: rotated ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 0.35s ease",
-            }}
-          />
+          <div className="swap-icon" />
         </div>
 
-        {/* ---------------- TO ---------------- */}
+        {/* TO */}
         <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
           <h3>TO</h3>
 
           <div
             className="selector-box"
-            style={{ width: "260px", minHeight: "52px" }}
             onClick={() => {
               setOpenDropdown(openDropdown === "to" ? null : "to");
-              setSearch("");
+              setToSearch("");
             }}
           >
-            {toCoin ? (
-              <>
-                <img className="selector-img" src={toCoin.image} />
-                <div>
-                  <div className="selector-symbol">{toCoin.symbol}</div>
-                  <div className="selector-name">{toCoin.name}</div>
-                </div>
-              </>
-            ) : (
-              <div style={{ opacity: 0.5 }}>Select coin…</div>
-            )}
+            <img className="selector-img" src={toCoin?.image} />
+            <div>
+              <div className="selector-symbol">{toCoin?.symbol}</div>
+              <div className="selector-name">{toCoin?.name}</div>
+            </div>
           </div>
 
           {openDropdown === "to" && renderDropdown("to")}
