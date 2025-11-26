@@ -16,6 +16,17 @@
 import { useEffect, useState, useRef } from "react";
 import { createChart, UTCTimestamp } from "lightweight-charts";
 
+// Global map so all functions can use it
+const rangeToDays: Record<string, number> = {
+  "24H": 1,
+  "7D": 7,
+  "1M": 30,
+  "3M": 90,
+  "6M": 180,
+  "1Y": 365,
+};
+
+
 /* ===========================================================
       TYPES
 =========================================================== */
@@ -80,17 +91,7 @@ const fiatNowCache:       Record<string, number> = {};
       UTILS
 =========================================================== */
 
-function rangeToDays(r: string) {
-  switch (r) {
-    case "24H": return 1;
-    case "7D":  return 7;
-    case "1M":  return 30;
-    case "3M":  return 90;
-    case "6M":  return 180;
-    case "1Y":  return 365;
-    default:    return 30;
-  }
-}
+
 
 /* ===========================================================
       FETCH CRYPTO → USD HISTORY (1y)
@@ -105,14 +106,7 @@ function rangeToDays(r: string) {
 async function fetchCryptoHistory(id: string, range: string): Promise<HistoryPoint[]> {
   try {
     // Convert range to number of days
-    const rangeToDays: Record<string, number> = {
-      "24H": 1,
-      "7D": 7,
-      "1M": 30,
-      "3M": 90,
-      "6M": 180,
-      "1Y": 365,
-    };
+    
 
     const days = rangeToDays[range];
 
@@ -362,7 +356,7 @@ export default function Page() {
       HISTORY BUILDER
   ------------------------ */
   async function getHistory(from: Coin, to: Coin) {
-    const days = rangeToDays(range);
+    const days = rangeToDays[range];
 
     const [fromFull, toFull] = await Promise.all([
       from.type === "crypto"
