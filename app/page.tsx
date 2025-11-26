@@ -12,81 +12,57 @@ interface Coin {
   market_cap?: number;
 }
 
-const [allCoins, setAllCoins] = useState<Coin[]>([]);
-
-useEffect(() => {
-  async function loadCoins() {
-    try {
-      // -------------------------
-      // 1. Load Top 250 Cryptos
-      // -------------------------
-      const cryptoRes = await fetch(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false"
-      );
-
-      const cryptoData = await cryptoRes.json();
-
-      const cryptoList: Coin[] = cryptoData.map((c: any) => ({
-        id: c.id,
-        symbol: c.symbol.toUpperCase(),
-        name: c.name,
-        image: c.image,
-        type: "crypto",
-        market_cap: c.market_cap,
-      }));
-
-      // Sort cryptos by market cap
-      cryptoList.sort((a, b) => (b.market_cap ?? 0) - (a.market_cap ?? 0));
-
-      // -------------------------
-      // 2. Add 20 Fiat Currencies
-      // -------------------------
-      const fiatList: Coin[] = [
-        { id: "usd", symbol: "USD", name: "US Dollar", image: "https://flagcdn.com/us.svg", type: "fiat" },
-        { id: "eur", symbol: "EUR", name: "Euro", image: "https://flagcdn.com/eu.svg", type: "fiat" },
-        { id: "jpy", symbol: "JPY", name: "Japanese Yen", image: "https://flagcdn.com/jp.svg", type: "fiat" },
-        { id: "gbp", symbol: "GBP", name: "British Pound", image: "https://flagcdn.com/gb.svg", type: "fiat" },
-        { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
-        { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "https://flagcdn.com/ca.svg", type: "fiat" },
-        { id: "chf", symbol: "CHF", name: "Swiss Franc", image: "https://flagcdn.com/ch.svg", type: "fiat" },
-        { id: "cny", symbol: "CNY", name: "Chinese Yuan", image: "https://flagcdn.com/cn.svg", type: "fiat" },
-        { id: "hkd", symbol: "HKD", name: "Hong Kong Dollar", image: "https://flagcdn.com/hk.svg", type: "fiat" },
-        { id: "nzd", symbol: "NZD", name: "New Zealand Dollar", image: "https://flagcdn.com/nz.svg", type: "fiat" },
-        { id: "sgd", symbol: "SGD", name: "Singapore Dollar", image: "https://flagcdn.com/sg.svg", type: "fiat" },
-        { id: "sek", symbol: "SEK", name: "Swedish Krona", image: "https://flagcdn.com/se.svg", type: "fiat" },
-        { id: "krw", symbol: "KRW", name: "South Korean Won", image: "https://flagcdn.com/kr.svg", type: "fiat" },
-        { id: "nok", symbol: "NOK", name: "Norwegian Krone", image: "https://flagcdn.com/no.svg", type: "fiat" },
-        { id: "mxn", symbol: "MXN", name: "Mexican Peso", image: "https://flagcdn.com/mx.svg", type: "fiat" },
-        { id: "inr", symbol: "INR", name: "Indian Rupee", image: "https://flagcdn.com/in.svg", type: "fiat" },
-        { id: "rub", symbol: "RUB", name: "Russian Ruble", image: "https://flagcdn.com/ru.svg", type: "fiat" },
-        { id: "brl", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
-        { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
-      ];
-
-      // Keep USD first — alphabetize the remaining fiat
-      const usdFiat = fiatList.find((f) => f.symbol === "USD")!;
-      const otherFiats = fiatList.filter((f) => f.symbol !== "USD");
-      otherFiats.sort((a, b) => a.symbol.localeCompare(b.symbol));
-
-      // -------------------------
-      // 3. Combine final list
-      // -------------------------
-      const finalList = [usdFiat, ...cryptoList, ...otherFiats];
-
-      setAllCoins(finalList);
-
-    } catch (err) {
-      console.error("Error loading coins:", err);
-    }
-  }
-
-  loadCoins();
-}, []);
-
-
-
 export default function Page() {
-  const [amount, setAmount] = useState("1");
+  // ALL HOOKS MUST BE INSIDE HERE
+  const [allCoins, setAllCoins] = useState<Coin[]>([]);
+// Amount input
+const [amount, setAmount] = useState("1");
+
+  useEffect(() => {
+    async function loadCoins() {
+      try {
+        // -------------------------
+        // 1. LOAD TOP 250 CRYPTOS
+        // -------------------------
+        const cryptoRes = await fetch(
+          "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false",
+          { next: { revalidate: 300 } }
+        );
+
+        const cryptoData = await cryptoRes.json();
+
+        const cryptoList: Coin[] = cryptoData.map((c: any) => ({
+          id: c.id,
+          symbol: c.symbol.toUpperCase(),
+          name: c.name,
+          image: c.image,
+          type: "crypto",
+          market_cap: c.market_cap,
+        }));
+
+        // -------------------------
+        // 2. LOAD FIAT (Frankfurter)
+        // -------------------------
+        const fiatSymbols = ["USD", "EUR", "GBP", "JPY", "AUD", "CAD", "CHF", "CNY", "NZD", "SEK", "NOK"];
+
+        const fiatList: Coin[] = fiatSymbols.map((f) => ({
+          id: f.toLowerCase(),
+          symbol: f,
+          name: f,
+          image: `/flags/${f.toLowerCase()}.svg`,
+          type: "fiat",
+          market_cap: 0,
+        }));
+
+        // Combine crypto + fiat
+        setAllCoins([...cryptoList, ...fiatList]);
+      } catch (err) {
+        console.error("Error loading coins:", err);
+      }
+    }
+
+    loadCoins();
+  }, []);
 
   // Independent search fields
   const [fromSearch, setFromSearch] = useState("");
