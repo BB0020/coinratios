@@ -8,16 +8,14 @@
   --card-bg: #ffffff;
   --card-border: #dcdcdc;
   --accent: #3b82f6;
-  --disabled: rgba(150,150,150,0.4);
 }
 
 html.dark {
   --bg: #111111;
-  --text: #e6e6e6;
+  --text: #f1f1f1;
   --card-bg: #1a1a1a;
   --card-border: #333;
   --accent: #4d9dff;
-  --disabled: rgba(255,255,255,0.3);
 }
 
 /* ------------------------------------------------------ */
@@ -33,12 +31,110 @@ body {
     Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
-h1, h2, h3 {
-  margin: 0;
+/* ------------------------------------------------------ */
+/* Dropdown */
+/* ------------------------------------------------------ */
+
+.selector-box {
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  width: 260px;
+  position: relative;
+}
+
+.selector-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 12px;
+}
+
+.selector-symbol {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.selector-name {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.dropdown-panel {
+  position: absolute;
+  top: 100%;
+  width: 260px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  margin-top: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden; /* FIX horizontal scroll */
+  z-index: 9999;
+}
+
+.dropdown-search {
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--card-border);
+  width: 100%;
+  outline: none;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.dropdown-row {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  white-space: nowrap; /* FIX shrink */
+  overflow: hidden;
+  transition: background 0.15s;
+}
+
+.dropdown-row:hover {
+  background: rgba(59,130,246,0.15); /* B2 hover */
+}
+
+.dropdown-selected {
+  background: rgba(59,130,246,0.18); /* A1 darker highlight */
+  border-radius: 6px;
+}
+
+.dropdown-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dropdown-disabled:hover {
+  background: transparent !important;
+}
+
+.dropdown-flag {
+  width: 28px;
+  height: 20px;
+  border-radius: 4px;
+  margin-right: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dropdown-symbol {
+  font-weight: 600;
+  margin-right: 6px;
+  flex-shrink: 0;
 }
 
 /* ------------------------------------------------------ */
-/* Swap Arrow */
+/* Swap Button */
 /* ------------------------------------------------------ */
 
 .swap-circle {
@@ -61,138 +157,12 @@ h1, h2, h3 {
 .swap-icon {
   width: 28px;
   height: 28px;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 4px 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' stroke='currentColor' stroke-width='2' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 7h14l-4-4m4 4l-4 4'/%3E%3Cpath d='M17 17H3l4 4m-4-4l4-4'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
   transition: transform 0.35s ease;
 }
 
 .swap-circle:hover .swap-icon {
   transform: rotate(180deg);
-}
-
-.swap-icon::before {
-  content: "→";
-  font-size: 22px;
-  font-weight: bold;
-  color: var(--text);
-  text-align: center;
-  line-height: 12px;
-}
-
-.swap-icon::after {
-  content: "←";
-  font-size: 22px;
-  font-weight: bold;
-  color: var(--text);
-  text-align: center;
-  line-height: 12px;
-}
-
-.swap-circle:hover .swap-icon::before,
-.swap-circle:hover .swap-icon::after {
-  color: white;
-}
-
-/* ------------------------------------------------------ */
-/* Dropdown */
-/* ------------------------------------------------------ */
-
-.selector-box {
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  border-radius: 12px;
-  padding: 12px 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  width: 260px;
-  transition: opacity 0.2s;
-  position: relative; /* Required for dropdown positioning */
-}
-
-.selector-img {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-  margin-right: 12px;
-}
-
-.selector-symbol {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.selector-name {
-  font-size: 14px;
-  opacity: 0.7;
-}
-
-/* Dropdown Panel */
-.dropdown-panel {
-  position: absolute;
-  top: 100%;
-  margin-top: 6px;
-  width: 260px; /* Must match selector width */
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  max-height: 360px;
-  overflow-y: auto;
-  z-index: 9999;
-}
-
-.dropdown-search {
-  padding: 10px 12px;
-  border: none;
-  border-bottom: 1px solid var(--card-border);
-  width: 100%;
-  outline: none;
-  background: var(--card-bg);
-  color: var(--text);
-  font-size: 14px;
-}
-
-.dropdown-row {
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.dropdown-row:hover {
-  background: rgba(59,130,246,0.15); /* B2 Hover */
-}
-
-/* SELECTED COIN */
-.dropdown-selected {
-  background: rgba(59,130,246,0.18); /* Slightly darker than hover */
-  border-radius: 8px;
-}
-
-/* DISABLED COIN */
-.dropdown-disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.dropdown-disabled:hover {
-  background: transparent !important;
-}
-
-.dropdown-flag {
-  width: 28px;
-  height: 20px;
-  border-radius: 4px;
-  margin-right: 12px;
-  object-fit: cover;
-}
-
-.dropdown-symbol {
-  font-weight: 600;
-  margin-right: 6px;
 }

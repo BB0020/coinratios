@@ -61,9 +61,27 @@ export default function Page() {
   const [result, setResult] = useState<number | null>(null);
   const [range, setRange] = useState("24H");
 
+  // Track last valid chart data so chart never goes blank (CMC style)
+  const lastValidData = useRef<any[]>([]);
+
+  // Refs for clicking outside dropdowns
   const fromPanelRef = useRef<HTMLDivElement | null>(null);
   const toPanelRef = useRef<HTMLDivElement | null>(null);
+
+  // Chart container reference
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Track theme from layout
+  const [theme, setTheme] = useState<string>("light");
+
+  // Detect change from layout.tsx
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setTheme(document.documentElement.className);
+    });
+    observer.observe(document.documentElement, { attributes: true });
+    return () => observer.disconnect();
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -97,16 +115,7 @@ export default function Page() {
     );
   };
 
-  const handleSwap = () => {
-    if (fromCoin && toCoin) {
-      const temp = fromCoin;
-      setFromCoin(toCoin);
-      setToCoin(temp);
-      setResult(null);
-    }
-  };
-
-  // Fetch price
+  // Fetch conversion rate instantly
   async function fetchRate(from: Coin, to: Coin) {
     try {
       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
@@ -122,13 +131,24 @@ export default function Page() {
     }
   }
 
+  // Auto-update rate on coin change, swap, or amount change
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
     if (amount === "" || Number(amount) <= 0) return;
     fetchRate(fromCoin, toCoin);
   }, [fromCoin, toCoin, amount]);
 
-  // Render dropdown row with disabled/highlight logic
+  // Handle swap instantly
+  const handleSwap = () => {
+    if (!fromCoin || !toCoin) return;
+    const temp = fromCoin;
+    setFromCoin(toCoin);
+    setToCoin(temp);
+
+    // Instant refresh
+    fetchRate(toCoin, fromCoin);
+  };
+  // Render dropdown row with disabled + selected + hover logic
   const renderRow = (
     coin: Coin,
     type: "from" | "to",
@@ -143,7 +163,6 @@ export default function Page() {
       (type === "to" && coin.id === toCoin?.id);
 
     let className = "dropdown-row";
-
     if (isDisabled) className += " dropdown-disabled";
     else if (isSelected) className += " dropdown-selected";
 
@@ -153,11 +172,19 @@ export default function Page() {
         className={className}
         onClick={() => {
           if (isDisabled) return;
+
           if (type === "from") setFromCoin(coin);
           if (type === "to") setToCoin(coin);
+
           setOpenDropdown(null);
           setFromSearch("");
           setToSearch("");
+
+          // INSTANT refresh (CMC style experience)
+          fetchRate(
+            type === "from" ? coin : fromCoin!,
+            type === "to" ? coin : toCoin!
+          );
         }}
       >
         <img className="dropdown-flag" src={coin.image} />
@@ -188,8 +215,9 @@ export default function Page() {
     );
   };
 
-  // CHART ------------------------------------------------------------
-
+  /* -------------------------------------------------------------
+     CHART RANGE → days mapping
+  ------------------------------------------------------------- */
   function rangeToDays(range: string) {
     switch (range) {
       case "24H": return 1;
@@ -203,29 +231,48 @@ export default function Page() {
     }
   }
 
+  /* -------------------------------------------------------------
+     Fetch historical chart data
+     - Returns [] if no valid data (we handle fallback)
+  ------------------------------------------------------------- */
   async function fetchHistory(id: string, vs: string, range: string) {
     const days = rangeToDays(range);
+
     const url =
       `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
       `?vs_currency=${vs}&days=${days}`;
 
-    const response = await fetch(url);
-    const data = await response.json();
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
 
-    return data.prices?.map((p: any) => ({
-      time: Math.floor(p[0] / 1000),
-      value: p[1],
-    })) || [];
+      if (!data.prices || data.prices.length === 0) {
+        return [];
+      }
+
+      return data.prices.map((p: any) => ({
+        time: Math.floor(p[0] / 1000),
+        value: p[1],
+      }));
+    } catch (err) {
+      console.error("History fetch error:", err);
+      return [];
+    }
   }
 
+  /* -------------------------------------------------------------
+     FULL Chart Rebuild:
+     - Runs on: fromCoin, toCoin, range, theme
+     - NEVER allows blank chart (CMC style)
+  ------------------------------------------------------------- */
   useEffect(() => {
     if (!chartContainerRef.current) return;
     if (!fromCoin || !toCoin) return;
 
     const container = chartContainerRef.current;
-    container.innerHTML = "";
+    container.innerHTML = ""; // clear
 
-    const isDark = document.documentElement.classList.contains("dark");
+    const isDark = theme === "dark";
 
     const chart = createChart(container, {
       width: container.clientWidth,
@@ -251,13 +298,28 @@ export default function Page() {
       bottomColor: "rgba(0,0,0,0)",
     });
 
+    /* -----------------------------
+       Load History with CMC fallback
+    ----------------------------- */
     fetchHistory(fromCoin.id, toCoin.id, range).then((data) => {
-      series.setData(data);
-      chart.timeScale().fitContent();
+      if (data.length > 0) {
+        lastValidData.current = data; // store
+        series.setData(data);
+        chart.timeScale().fitContent();
+      } else {
+        // fallback: never blank
+        series.setData(lastValidData.current);
+        chart.timeScale().fitContent();
+      }
     });
 
-    const handleResize = () =>
+    /* -----------------------------
+       Resize handler
+    ----------------------------- */
+    const handleResize = () => {
       chart.resize(container.clientWidth, 360);
+      chart.timeScale().fitContent();
+    };
 
     window.addEventListener("resize", handleResize);
 
@@ -265,8 +327,10 @@ export default function Page() {
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [fromCoin, toCoin, range]);
-
+  }, [fromCoin, toCoin, range, theme]);
+  /* -------------------------------------------------------------
+     Range Buttons
+  ------------------------------------------------------------- */
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y", "ALL"];
 
@@ -301,6 +365,9 @@ export default function Page() {
     );
   };
 
+  /* -------------------------------------------------------------
+     Conversion Result Text
+  ------------------------------------------------------------- */
   const renderResult = () => {
     if (!fromCoin || !toCoin || result === null) return null;
 
@@ -351,6 +418,9 @@ export default function Page() {
     );
   };
 
+  /* -------------------------------------------------------------
+     Component Layout
+  ------------------------------------------------------------- */
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "28px" }}>
 
@@ -387,6 +457,7 @@ export default function Page() {
               border: "1px solid var(--card-border)",
               background: "var(--card-bg)",
               fontSize: "18px",
+              color: "var(--text)", // DARK MODE FIX
             }}
           />
 
@@ -460,6 +531,7 @@ export default function Page() {
 
       <RangeButtons />
 
+      {/* CHART */}
       <div
         ref={chartContainerRef}
         style={{
