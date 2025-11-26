@@ -96,22 +96,50 @@ function rangeToDays(r: string) {
       FETCH CRYPTO → USD HISTORY (1y)
 =========================================================== */
 
-async function fetchCryptoUSDHistory(id: string): Promise<HistoryPoint[]> {
-  if (cryptoHistoryCache[id]) return cryptoHistoryCache[id];
+// -------------------------------------------------------------
+// FETCH CRYPTO HISTORY (HOURLY FOR <90 DAYS, DAILY FOR >90 DAYS)
+// -------------------------------------------------------------
+// -------------------------------------------------------------
+// FETCH CRYPTO HISTORY (HOURLY FOR <90 DAYS, DAILY FOR >90 DAYS)
+// -------------------------------------------------------------
+async function fetchCryptoHistory(id: string, range: string): Promise<HistoryPoint[]> {
+  try {
+    // Convert range to number of days
+    const rangeToDays: Record<string, number> = {
+      "24H": 1,
+      "7D": 7,
+      "1M": 30,
+      "3M": 90,
+      "6M": 180,
+      "1Y": 365,
+    };
 
-  const r = await fetch(
-    `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365`
-  );
-  const d = await r.json();
+    const days = rangeToDays[range];
 
-  const arr: HistoryPoint[] = d?.prices?.map((p: any) => ({
-    time: Math.floor(p[0] / 1000) as UTCTimestamp,
-    value: p[1],
-  })) || [];
+    // CoinGecko supports HOURLY only for <= 90 days
+    const interval = days <= 90 ? "hourly" : "daily";
 
-  cryptoHistoryCache[id] = arr;
-  return arr;
+    const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}&interval=${interval}`;
+
+    const res = await fetch(url);
+    if (!res.ok) return [];
+
+    const data = await res.json();
+
+    // CoinGecko returns [timestamp(ms), price]
+    const points: HistoryPoint[] = data.prices.map((p: [number, number]) => ({
+      time: Math.floor(p[0] / 1000) as UTCTimestamp, // MUST FIX TIMESTAMP
+      value: p[1],
+    }));
+
+    return points;
+  } catch (err) {
+    console.error("fetchCryptoHistory error:", err);
+    return [];
+  }
 }
+
+
 
 /* ===========================================================
       FETCH FIAT → USD HISTORY (1y, 1 API call)
@@ -338,10 +366,10 @@ export default function Page() {
 
     const [fromFull, toFull] = await Promise.all([
       from.type === "crypto"
-        ? fetchCryptoUSDHistory(from.id)
+        ? fetchCryptoHistory(fromCoin!.id, range)
         : fetchFiatUSDHistory(from.symbol),
       to.type === "crypto"
-        ? fetchCryptoUSDHistory(to.id)
+        ? fetchCryptoHistory(toCoin!.id, range)
         : fetchFiatUSDHistory(to.symbol),
     ]);
 
