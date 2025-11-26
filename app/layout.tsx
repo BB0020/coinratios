@@ -10,13 +10,11 @@ export default function RootLayout({
 }) {
   const [theme, setTheme] = useState("light");
 
-  /* Load saved theme */
   useEffect(() => {
     const saved = localStorage.getItem("theme");
     if (saved) setTheme(saved);
   }, []);
 
-  /* Apply theme to <html> */
   useEffect(() => {
     document.documentElement.className = theme;
     localStorage.setItem("theme", theme);
@@ -25,7 +23,6 @@ export default function RootLayout({
   return (
     <html>
       <body>
-        {/* Header theme toggle */}
         <div style={{ textAlign: "right", padding: "16px 22px" }}>
           <button
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
