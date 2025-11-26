@@ -12,6 +12,7 @@ interface Coin {
 }
 
 const allCoins: Coin[] = [
+  // ------------------ CRYPTOS ------------------
   {
     id: "bitcoin",
     symbol: "BTC",
@@ -26,21 +27,29 @@ const allCoins: Coin[] = [
     image: "https://assets.coingecko.com/coins/images/279/large/ethereum.png",
     type: "crypto",
   },
-  {
-    id: "usd",
-    symbol: "USD",
-    name: "US Dollar",
-    image: "https://flagcdn.com/us.svg",
-    type: "fiat",
-  },
-  {
-    id: "eur",
-    symbol: "EUR",
-    name: "Euro",
-    image: "https://flagcdn.com/eu.svg",
-    type: "fiat",
-  },
+
+  // ------------------ TOP 20 FIATS ------------------
+  { id: "usd", symbol: "USD", name: "US Dollar", image: "https://flagcdn.com/us.svg", type: "fiat" },
+  { id: "eur", symbol: "EUR", name: "Euro", image: "https://flagcdn.com/eu.svg", type: "fiat" },
+  { id: "jpy", symbol: "JPY", name: "Japanese Yen", image: "https://flagcdn.com/jp.svg", type: "fiat" },
+  { id: "gbp", symbol: "GBP", name: "British Pound", image: "https://flagcdn.com/gb.svg", type: "fiat" },
+  { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
+  { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "https://flagcdn.com/ca.svg", type: "fiat" },
+  { id: "chf", symbol: "CHF", name: "Swiss Franc", image: "https://flagcdn.com/ch.svg", type: "fiat" },
+  { id: "cny", symbol: "CNY", name: "Chinese Yuan", image: "https://flagcdn.com/cn.svg", type: "fiat" },
+  { id: "hkd", symbol: "HKD", name: "Hong Kong Dollar", image: "https://flagcdn.com/hk.svg", type: "fiat" },
+  { id: "nzd", symbol: "NZD", name: "New Zealand Dollar", image: "https://flagcdn.com/nz.svg", type: "fiat" },
+  { id: "sgd", symbol: "SGD", name: "Singapore Dollar", image: "https://flagcdn.com/sg.svg", type: "fiat" },
+  { id: "sek", symbol: "SEK", name: "Swedish Krona", image: "https://flagcdn.com/se.svg", type: "fiat" },
+  { id: "krw", symbol: "KRW", name: "South Korean Won", image: "https://flagcdn.com/kr.svg", type: "fiat" },
+  { id: "nok", symbol: "NOK", name: "Norwegian Krone", image: "https://flagcdn.com/no.svg", type: "fiat" },
+  { id: "mxn", symbol: "MXN", name: "Mexican Peso", image: "https://flagcdn.com/mx.svg", type: "fiat" },
+  { id: "inr", symbol: "INR", name: "Indian Rupee", image: "https://flagcdn.com/in.svg", type: "fiat" },
+  { id: "rub", symbol: "RUB", name: "Russian Ruble", image: "https://flagcdn.com/ru.svg", type: "fiat" },
+  { id: "brl", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
+  { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
 ];
+
 
 export default function Page() {
   const [amount, setAmount] = useState("1");
@@ -117,19 +126,66 @@ export default function Page() {
 
   // Fetch conversion rate instantly
   async function fetchRate(from: Coin, to: Coin) {
-    try {
+  try {
+    // Case 1: crypto → crypto or crypto → fiat (OK on CoinGecko)
+    if (from.type === "crypto") {
       const url = `https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=${to.id}`;
       const res = await fetch(url);
       const data = await res.json();
 
       if (data[from.id] && data[from.id][to.id]) {
-        const rate = data[from.id][to.id];
-        setResult(rate * Number(amount));
+        setResult(data[from.id][to.id] * Number(amount));
+        return;
       }
-    } catch (err) {
-      console.error("Price fetch error:", err);
     }
+
+    // Case 2: fiat → crypto (not supported by CoinGecko)
+    // Convert fiat → USD → crypto
+    if (from.type === "fiat" && to.type === "crypto") {
+      const fx = await fetch(`https://api.frankfurter.app/latest?from=${from.symbol}`);
+      const fxData = await fx.json();
+      const rateToUSD = fxData.rates["USD"];
+
+      const cg = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${to.id}&vs_currencies=usd`);
+      const cgData = await cg.json();
+      const toUsd = cgData[to.id].usd;
+
+      const finalRate = (1 / rateToUSD) / toUsd;
+
+      setResult(finalRate * Number(amount));
+      return;
+    }
+
+    // Case 3: crypto → fiat (also safe via Frankfurter)
+    if (from.type === "crypto" && to.type === "fiat") {
+      const cg = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${from.id}&vs_currencies=usd`);
+      const cgData = await cg.json();
+      const fromUsd = cgData[from.id].usd;
+
+      const fx = await fetch(`https://api.frankfurter.app/latest?from=USD`);
+      const fxData = await fx.json();
+      const usdToFiat = fxData.rates[to.symbol];
+
+      const finalRate = fromUsd * usdToFiat;
+
+      setResult(finalRate * Number(amount));
+      return;
+    }
+
+    // Case 4: fiat → fiat (Frankfurter supports it directly)
+    if (from.type === "fiat" && to.type === "fiat") {
+      const fx = await fetch(`https://api.frankfurter.app/latest?from=${from.symbol}&to=${to.symbol}`);
+      const fxData = await fx.json();
+      const finalRate = fxData.rates[to.symbol];
+
+      setResult(finalRate * Number(amount));
+      return;
+    }
+  } catch (err) {
+    console.error("fetchRate error:", err);
   }
+}
+
 
   // Auto-update rate on coin change, swap, or amount change
   useEffect(() => {
