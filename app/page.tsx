@@ -200,7 +200,7 @@ async function fetchFiatUSDNow(symbol: string) {
   const r = await fetch(`https://api.frankfurter.app/latest?from=USD&to=${symbol}`);
   const d = await r.json();
   const usdToFiat = d?.rates?.[symbol] ?? 0;
-  const val = 1 / usdToFiat;
+  const val = usdToFiat === 0 ? 0 : (1 / usdToFiat);
   fiatNowCache[symbol] = val;
   return val;
 }
@@ -345,7 +345,7 @@ export default function Page() {
         : fetchFiatUSDNow(toCoin.symbol),
     ]);
 
-    setResult((fromUSD / toUSD) * amt);
+    setResult((amt * fromUSD) / toUSD);
   }
 
   useEffect(() => {
@@ -384,11 +384,19 @@ async function getHistory(from: Coin, to: Coin) {
       SWAP BUTTON
   ------------------------ */
   function handleSwap() {
-    if (!fromCoin || !toCoin) return;
-    const tmp = fromCoin;
-    setFromCoin(toCoin);
-    setToCoin(tmp);
-  }
+  if (!fromCoin || !toCoin) return;
+
+  // 1️⃣ Swap coins first
+  const temp = fromCoin;
+  setFromCoin(toCoin);
+  setToCoin(temp);
+
+  // 2️⃣ Recompute now-price AFTER the swap is applied
+  setTimeout(() => {
+    computeNow();
+  }, 0);
+}
+
 
   /* ===========================================================
       X-AXIS FORMATTER (CMC-STYLE)
@@ -424,6 +432,19 @@ async function getHistory(from: Coin, to: Coin) {
   /* ===========================================================
       CHART RENDER
 =========================================================== */
+
+  useEffect(() => {
+  if (!fromCoin || !toCoin) return;
+
+  getHistory(fromCoin, toCoin).then((data) => {
+    // If chart already exists, update it
+    if (lastData.current && data?.length > 0) {
+      lastData.current = data;
+    }
+  });
+}, [fromCoin, toCoin, range]);
+
+
   useEffect(() => {
     if (!chartRef.current || !fromCoin || !toCoin) return;
 
