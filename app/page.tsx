@@ -172,6 +172,25 @@ export default function Page() {
     loadCoins();
   }, []);
   /* -------------------------------------------------------------
+   FORCE DEFAULT SELECTION (BTC → USD)
+   Run only once when allCoins is populated
+------------------------------------------------------------- */
+useEffect(() => {
+  if (fromCoin || toCoin) return;   // already set
+  if (allCoins.length === 0) return;
+
+  const btc = allCoins.find((c) => c.id === "bitcoin");
+  const usd = allCoins.find((c) => c.id === "USD");
+
+  if (btc && usd) {
+    setFromCoin(btc);
+    setToCoin(usd);
+    setAmount("1");
+  }
+}, [allCoins]);
+
+  
+  /* -------------------------------------------------------------
      CLOSE DROPDOWNS WHEN CLICKING OUTSIDE
   ------------------------------------------------------------- */
   useEffect(() => {
@@ -389,7 +408,9 @@ export default function Page() {
   ------------------------------------------------------------- */
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    if (!amount || Number(amount) <= 0) return;
+    if (!fromCoin || !toCoin) return;
+    if (Number(amount) <= 0) return;  // amount is already default "1"
+
 
     fetchRate(fromCoin, toCoin);
   }, [fromCoin, toCoin, amount, fxRates]);
@@ -497,7 +518,11 @@ export default function Page() {
   useEffect(() => {
     if (!chartContainerRef.current) return;
     if (!fromCoin || !toCoin) return;
-    if (Object.keys(fxRates).length === 0) return;
+    // Only require FX rates when either coin is fiat
+const needsFx =
+  fromCoin?.type === "fiat" || toCoin?.type === "fiat";
+
+if (needsFx && Object.keys(fxRates).length === 0) return;
 
     const container = chartContainerRef.current;
     container.innerHTML = "";
