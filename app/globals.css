@@ -36,8 +36,16 @@ h3 {
   font-size: 16px;
 }
 
+/* Motion reduction */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 /* ------------------------------------------------------ */
-/* SELECTOR BOX (FROM/TO) */
+/* SELECTOR BOX */
 /* ------------------------------------------------------ */
 
 .selector-box {
@@ -52,6 +60,7 @@ h3 {
   gap: 12px;
   transition: 0.15s;
   position: relative;
+  contain: layout paint;
 }
 
 .selector-box:hover {
@@ -63,12 +72,6 @@ h3 {
   height: 42px;
   border-radius: 50%;
   object-fit: cover;
-}
-
-/* SYMBOL + NAME: stacked vertically */
-.selector-text {
-  display: flex;
-  flex-direction: column;
 }
 
 .selector-symbol {
@@ -84,7 +87,7 @@ h3 {
 }
 
 /* ------------------------------------------------------ */
-/* DROPDOWN PANEL */
+/* DROPDOWN */
 /* ------------------------------------------------------ */
 
 .dropdown-panel {
@@ -100,9 +103,9 @@ h3 {
   overflow-x: hidden;
   z-index: 9999;
   box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  contain: layout paint;
 }
 
-/* SEARCH BAR INSIDE DROPDOWN */
 .dropdown-search {
   width: 100%;
   padding: 12px;
@@ -114,7 +117,6 @@ h3 {
   font-size: 14px;
 }
 
-/* ROW LAYOUT — IMAGE LEFT, SYMBOL ABOVE NAME */
 .dropdown-row {
   padding: 12px 14px;
   display: flex;
@@ -125,10 +127,9 @@ h3 {
 }
 
 .dropdown-row:hover {
-  background: rgba(59, 130, 246, 0.15); /* Hover B2 */
+  background: rgba(59, 130, 246, 0.15);
 }
 
-/* Logo inside dropdown */
 .dropdown-flag {
   width: 36px;
   height: 36px;
@@ -136,7 +137,6 @@ h3 {
   object-fit: cover;
 }
 
-/* Vertical stack text */
 .dropdown-text {
   display: flex;
   flex-direction: column;
@@ -154,33 +154,23 @@ h3 {
   margin-top: 2px;
 }
 
-/* Selected Coin */
 .dropdown-selected {
-  background: rgba(59,130,246,0.22); /* A1 slightly darker */
+  background: rgba(59,130,246,0.22);
 }
 
-/* Disabled (same coin) */
 .dropdown-disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }
 
-.dropdown-disabled:hover {
-  background: transparent !important;
-}
-
-/* ------------------------------------------------------ */
-/* SCROLLBAR (CLEAN) */
-/* ------------------------------------------------------ */
+/* Scrollbar */
 .dropdown-panel::-webkit-scrollbar {
   width: 7px;
 }
-
 .dropdown-panel::-webkit-scrollbar-thumb {
   background: #bcbcbc;
   border-radius: 6px;
 }
-
 html.dark .dropdown-panel::-webkit-scrollbar-thumb {
   background: #555;
 }
@@ -200,6 +190,7 @@ html.dark .dropdown-panel::-webkit-scrollbar-thumb {
   align-items: center;
   cursor: pointer;
   transition: 0.25s ease;
+  contain: layout paint;
 }
 
 .swap-circle:hover {
@@ -217,21 +208,4 @@ html.dark .dropdown-panel::-webkit-scrollbar-thumb {
 
 .swap-circle:hover .swap-icon {
   transform: rotate(180deg);
-}
-
-/* ------------------------------------------------------ */
-/* BUTTONS (CHART RANGE) */
-/* ------------------------------------------------------ */
-
-button {
-  font-family: inherit;
-  transition: 0.15s;
-}
-
-/* ------------------------------------------------------ */
-/* INPUT (AMOUNT) */
-/* ------------------------------------------------------ */
-
-input {
-  color: var(--text);
 }

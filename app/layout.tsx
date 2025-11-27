@@ -1,34 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import "./globals.css";
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [theme, setTheme] = useState("light");
+export default function RootLayout({ children }: { children: React.ReactNode }) {
 
-  /* Load saved theme */
+  // Initialize theme ONCE
   useEffect(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved) setTheme(saved);
+    const saved = localStorage.getItem("theme") || "light";
+    document.documentElement.classList.add(saved);
   }, []);
 
-  /* Apply theme to <html> */
-  useEffect(() => {
-    document.documentElement.className = theme;
-    localStorage.setItem("theme", theme);
-  }, [theme]);
+  function toggleTheme() {
+    const html = document.documentElement;
+    const next = html.classList.contains("dark") ? "light" : "dark";
+
+    html.classList.remove("light", "dark");
+    html.classList.add(next);
+    localStorage.setItem("theme", next);
+
+    window.dispatchEvent(new Event("theme-change"));
+  }
 
   return (
     <html>
       <body>
-        {/* Header theme toggle */}
         <div style={{ textAlign: "right", padding: "16px 22px" }}>
           <button
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+            onClick={toggleTheme}
             style={{
               padding: "8px 16px",
               borderRadius: "8px",
@@ -39,7 +38,7 @@ export default function RootLayout({
               fontSize: "14px",
             }}
           >
-            {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
+            Toggle Theme
           </button>
         </div>
 
