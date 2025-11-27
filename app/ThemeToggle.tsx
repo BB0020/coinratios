@@ -1,39 +1,52 @@
 "use client";
+
 import { useEffect, useState } from "react";
-import { Sun, Moon } from "lucide-react";
 
 export default function ThemeToggle() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
-  // Load stored theme
+  // Load saved theme on mount
   useEffect(() => {
-    const stored = localStorage.getItem("theme") as "light" | "dark" | null;
-    const initial = stored || "light";
+    const saved =
+      (typeof window !== "undefined" &&
+        localStorage.getItem("theme")) || "light";
 
-    setTheme(initial);
-    document.documentElement.classList.toggle("dark", initial === "dark");
-    document.body.classList.toggle("dark", initial === "dark");
+    setTheme(saved as "light" | "dark");
+    document.documentElement.classList.remove("light", "dark");
+    document.documentElement.classList.add(saved);
   }, []);
 
   function toggleTheme() {
-    const next: "light" | "dark" = theme === "light" ? "dark" : "light";
+    const next = theme === "light" ? "dark" : "light";
     setTheme(next);
     localStorage.setItem("theme", next);
 
-    document.documentElement.classList.toggle("dark", next === "dark");
-    document.body.classList.toggle("dark", next === "dark");
+    document.documentElement.classList.remove("light", "dark");
+    document.documentElement.classList.add(next);
   }
 
   return (
     <button
+      className="theme-toggle"
       onClick={toggleTheme}
-      className="theme-toggle-button"
       aria-label="Toggle theme"
     >
       {theme === "light" ? (
-        <Moon size={22} strokeWidth={1.8} />
+        <svg width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
       ) : (
-        <Sun size={22} strokeWidth={1.8} />
+        <svg width="22" height="22" stroke="currentColor" strokeWidth="2" fill="none">
+          <path d="M21 12.79A9 9 0 0111.21 3 7 7 0 0021 12.79z" />
+        </svg>
       )}
     </button>
   );

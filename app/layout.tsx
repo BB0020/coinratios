@@ -1,43 +1,19 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import "./globals.css";
+import type { Metadata } from "next";
+import ThemeToggle from "./ThemeToggle";
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [theme, setTheme] = useState("light");
+export const metadata: Metadata = {
+  title: "Crypto Ratio Converter",
+  description: "Convert crypto & fiat with charts",
+};
 
-  useEffect(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved) setTheme(saved);
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.className = theme;
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html>
+    <html lang="en" className="light">
       <body>
-        <div style={{ textAlign: "right", padding: "16px 22px" }}>
-          <button
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: "var(--card-bg)",
-              color: "var(--text)",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
-          </button>
+        {/* FIXED TOP-RIGHT TOGGLE */}
+        <div className="theme-toggle-wrapper">
+          <ThemeToggle />
         </div>
 
         {children}
