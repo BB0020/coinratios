@@ -1,284 +1,156 @@
-/* ===========================================================
-    ROOT THEME VARIABLES
-=========================================================== */
+/* ----------------------------------------------------------
+   RESET / BASE
+----------------------------------------------------------- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
 html.light {
   --bg: #ffffff;
   --text: #111111;
-  --subtext: #666666;
-
-  --box-bg: #ffffff;
-  --box-border: #e5e5e5;
-  --box-hover: #f3f3f3;
-
-  --dropdown-bg: #ffffff;
-  --dropdown-border: #dcdcdc;
-  --dropdown-hover: #f0f0f0;
-
-  --swap-bg: #fafafa;
-  --swap-border: #d1d1d1;
-
-  --chart-bg: #ffffff;
-  --chart-grid: #e6e6e6;
+  --panel: #f9f9f9;
 }
 
 html.dark {
-  --bg: #0f0f0f;
-  --text: #f2f2f2;
-  --subtext: #bbbbbb;
-
-  --box-bg: #1b1b1b;
-  --box-border: #333;
-  --box-hover: #2a2a2a;
-
-  --dropdown-bg: #1a1a1a;
-  --dropdown-border: #333;
-  --dropdown-hover: #2a2a2a;
-
-  --swap-bg: #262626;
-  --swap-border: #444;
-
-  --chart-bg: #111;
-  --chart-grid: #222;
+  --bg: #111111;
+  --text: #e5e5e5;
+  --panel: #1a1a1a;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
-  margin: 0;
-  padding: 0;
-  font-family: system-ui, sans-serif;
   transition: background 0.25s, color 0.25s;
+  font-family: system-ui, sans-serif;
 }
 
-/* ===========================================================
-    THEME TOGGLE
-=========================================================== */
-.theme-toggle-wrapper {
-  position: fixed;
-  top: 18px;
-  right: 22px;
-  z-index: 2000;
-}
-
-.theme-toggle {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  border: none;
-  background: var(--box-bg);
-  color: var(--text);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 8px rgba(0, 0, 0, 0.18);
-  transition: background 0.25s, color 0.25s, transform 0.15s;
-}
-
-.theme-toggle:hover {
-  transform: scale(1.07);
-  background: var(--box-hover);
-}
-
-/* ===========================================================
-    PAGE CONTAINER
-=========================================================== */
-.page-container {
-  padding: 40px 20px;
-  max-width: 1180px;
+/* ----------------------------------------------------------
+   PAGE WRAPPER
+----------------------------------------------------------- */
+.page-wrapper {
+  max-width: 900px;
   margin: 0 auto;
+  padding: 30px 20px;
 }
 
-/* ===========================================================
-    SELECTOR ROW (Amount, From, Swap, To)
-=========================================================== */
-.selector-row {
+/* ----------------------------------------------------------
+   TOP CONTROLS (amount / from / swap / to)
+----------------------------------------------------------- */
+.top-controls {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: center;
-  gap: 20px;
-  flex-wrap: wrap;
+  gap: 18px;
+  margin-bottom: 20px;
 }
 
-/* ===========================================================
-    AMOUNT BOX
-=========================================================== */
-.amount-box {
-  width: 160px;
+/* amount */
+.amount-section label,
+.from-section label,
+.to-section label {
+  font-size: 14px;
+  margin-bottom: 4px;
+  display: block;
 }
 
 .amount-input {
-  width: 100%;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid var(--box-border);
-  background: var(--box-bg);
-  color: var(--text);
-  font-size: 16px;
-}
-
-.amount-error {
-  color: #e53939;
-  font-size: 12px;
-  margin-top: 2px;
-}
-
-/* ===========================================================
-    SELECTOR COMPONENTS
-=========================================================== */
-.selector-col {
-  width: 180px;
-  position: relative;
-}
-
-.selector-box {
-  padding: 12px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  border-radius: 10px;
-  background: var(--box-bg);
-  border: 1px solid var(--box-border);
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.selector-box:hover {
-  background: var(--box-hover);
-}
-
-.selector-img {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-}
-
-.selector-symbol {
-  font-weight: bold;
-}
-
-.selector-name {
-  font-size: 12px;
-  color: var(--subtext);
-}
-
-/* ===========================================================
-    DROPDOWN PANEL
-=========================================================== */
-.dropdown-panel {
-  position: absolute;
-  width: 100%;
-  max-height: 300px;
-  overflow-y: auto;
-  margin-top: 6px;
-  padding: 10px;
-  background: var(--dropdown-bg);
-  border: 1px solid var(--dropdown-border);
-  border-radius: 10px;
-  z-index: 999;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-}
-
-.dropdown-search {
-  width: 100%;
+  width: 120px;
   padding: 8px;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  background: var(--box-bg);
-  border: 1px solid var(--dropdown-border);
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: var(--panel);
   color: var(--text);
 }
 
-.dropdown-row {
-  display: flex;
-  gap: 10px;
+/* from/to selects */
+.from-section select,
+.to-section select {
+  width: 130px;
   padding: 8px;
-  align-items: center;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* swap button */
+.swap-button {
+  background: var(--panel);
+  padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
-}
-
-.dropdown-row:hover {
-  background: var(--dropdown-hover);
-}
-
-.dropdown-disabled {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.dropdown-flag {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-}
-
-/* ===========================================================
-    SWAP BUTTON
-=========================================================== */
-.swap-circle {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--swap-bg);
-  border: 1px solid var(--swap-border);
-  margin-top: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: transform 0.25s, background 0.25s;
-}
-
-.swap-circle:hover {
-  transform: rotate(180deg);
-  background: var(--box-hover);
-}
-
-/* ===========================================================
-    RESULT
-=========================================================== */
-.result-box {
-  margin-top: 10px;
-  text-align: center;
   font-size: 22px;
+  user-select: none;
+  transition: background 0.2s;
+  border: 1px solid #bbb;
+}
+.swap-button:hover {
+  background: #ddd;
+}
+html.dark .swap-button:hover {
+  background: #333;
 }
 
-/* ===========================================================
-    RANGE BUTTONS
-=========================================================== */
+/* ----------------------------------------------------------
+   RESULT BOX
+----------------------------------------------------------- */
+.result-box {
+  margin: 10px auto 25px auto;
+  font-size: 20px;
+  text-align: center;
+}
+
+.invalid-msg {
+  color: #ff4d4d;
+  font-size: 14px;
+}
+
+/* ----------------------------------------------------------
+   RANGE BUTTONS
+----------------------------------------------------------- */
 .range-buttons {
-  margin-top: 20px;
   display: flex;
-  gap: 10px;
   justify-content: center;
+  gap: 8px;
+  margin-bottom: 25px;
 }
 
-.range-btn,
-.range-active {
-  padding: 8px 16px;
-  border-radius: 8px;
-  border: 1px solid var(--box-border);
-  background: var(--box-bg);
+.range-buttons button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid #bbb;
   cursor: pointer;
-  transition: 0.2s;
+  color: var(--text);
 }
 
-.range-active {
+.range-buttons button.active {
   background: #3b82f6;
+  color: #fff;
   border-color: #3b82f6;
-  color: white;
 }
 
-/* ===========================================================
-    CHART CONTAINER
-=========================================================== */
+.range-buttons button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ----------------------------------------------------------
+   CHART CONTAINER
+----------------------------------------------------------- */
 .chart-container {
   width: 100%;
-  height: 390px;
-  margin-top: 24px;
-  border: 1px solid var(--box-border);
-  background: var(--chart-bg);
-  border-radius: 10px;
-  transition: background 0.25s;
+  height: 360px; /* matches your chart height */
+}
+
+/* ----------------------------------------------------------
+   THEME TOGGLE POSITION
+----------------------------------------------------------- */
+.theme-toggle-wrapper {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 999;
 }

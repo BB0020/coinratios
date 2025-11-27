@@ -1,10 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { createChart, UTCTimestamp, IChartApi } from "lightweight-charts";
+import {
+  useState,
+  useEffect,
+  useRef,
+  ChangeEvent,
+} from "react";
+import {
+  createChart,
+  UTCTimestamp,
+  IChartApi,
+  ISeriesApi,
+  AreaData,
+} from "lightweight-charts";
 
 /* ===========================================================
-      TYPES
+   TYPES
 =========================================================== */
 interface Coin {
   id: string;
@@ -20,89 +31,48 @@ interface HistoryPoint {
 }
 
 /* ===========================================================
-      FIAT LIST
+   STATIC FIAT LIST
 =========================================================== */
-const USD: Coin = {
-  id: "USD",
-  symbol: "USD",
-  name: "US Dollar",
-  image: "/flags/usd.png",
-  type: "fiat",
-};
-
 const fiatList: Coin[] = [
-  USD,
+  { id: "USD", symbol: "USD", name: "US Dollar", type: "fiat" },
   { id: "EUR", symbol: "EUR", name: "Euro", type: "fiat" },
-  { id: "JPY", symbol: "JPY", name: "Japanese Yen", type: "fiat" },
+  { id: "CAD", symbol: "CAD", name: "Canadian Dollar", type: "fiat" },
   { id: "GBP", symbol: "GBP", name: "British Pound", type: "fiat" },
   { id: "AUD", symbol: "AUD", name: "Australian Dollar", type: "fiat" },
-  { id: "CAD", symbol: "CAD", name: "Canadian Dollar", type: "fiat" },
   { id: "CHF", symbol: "CHF", name: "Swiss Franc", type: "fiat" },
-  { id: "CNY", symbol: "CNY", name: "Chinese Yuan", type: "fiat" },
-  { id: "HKD", symbol: "HKD", name: "Hong Kong Dollar", type: "fiat" },
-  { id: "NZD", symbol: "NZD", name: "New Zealand Dollar", type: "fiat" },
-  { id: "SEK", symbol: "SEK", name: "Swedish Krona", type: "fiat" },
-  { id: "KRW", symbol: "KRW", name: "South Korean Won", type: "fiat" },
-  { id: "SGD", symbol: "SGD", name: "Singapore Dollar", type: "fiat" },
-  { id: "NOK", symbol: "NOK", name: "Norwegian Krone", type: "fiat" },
-  { id: "MXN", symbol: "MXN", name: "Mexican Peso", type: "fiat" },
-  { id: "INR", symbol: "INR", name: "Indian Rupee", type: "fiat" },
-  { id: "BRL", symbol: "BRL", name: "Brazilian Real", type: "fiat" },
-  { id: "ZAR", symbol: "ZAR", name: "South African Rand", type: "fiat" },
-  { id: "RUB", symbol: "RUB", name: "Russian Ruble", type: "fiat" },
-  { id: "TRY", symbol: "TRY", name: "Turkish Lira", type: "fiat" },
 ];
 
+const USD: Coin = { id: "USD", symbol: "USD", name: "US Dollar", type: "fiat" };
+
 /* ===========================================================
-      CACHES
+   CACHES
 =========================================================== */
 const cryptoHistoryCache: Record<string, HistoryPoint[]> = {};
 const fiatHistoryCache: Record<string, HistoryPoint[]> = {};
-const cryptoNowCache: Record<string, number> = {};
-const fiatNowCache: Record<string, number> = {};
 
 /* ===========================================================
-      PAGE
+   PAGE COMPONENT
 =========================================================== */
 export default function Page() {
+  /* ------------------------------
+        STATE
+  ------------------------------ */
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
-
   const [amount, setAmount] = useState("1");
   const [range, setRange] = useState("24H");
-  const [result, setResult] = useState<number | null>(null);
 
-  const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
-  const [fromSearch, setFromSearch] = useState("");
-  const [toSearch, setToSearch] = useState("");
+  const [conversion, setConversion] = useState<{
+    fromUSD: number;
+    toUSD: number;
+    result: number;
+  }>({ fromUSD: 0, toUSD: 0, result: 0 });
 
-  const fromPanelRef = useRef<HTMLDivElement | null>(null);
-  const toPanelRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const chartInstance = useRef<IChartApi | null>(null);
-
+  const areaSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const lastValidData = useRef<HistoryPoint[]>([]);
-  const areaSeriesRef = useRef<any>(null);
-
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-
-  /* ===========================================================
-        WATCH THEME (for chart updates)
-  ============================================================ */
-  useEffect(() => {
-    const html = document.documentElement;
-    function update() {
-      if (html.classList.contains("dark")) setTheme("dark");
-      else setTheme("light");
-    }
-
-    const obs = new MutationObserver(update);
-    obs.observe(html, { attributes: true, attributeFilter: ["class"] });
-
-    update();
-    return () => obs.disconnect();
-  }, []);
 
   /* ===========================================================
         LOAD COINS
@@ -119,480 +89,369 @@ export default function Page() {
         symbol: c.symbol.toUpperCase(),
         name: c.name,
         image: c.image,
-        type: "crypto",
+        type: "crypto" as const,
       }));
 
-      const sortedFiats = [...fiatList].sort((a, b) => a.symbol.localeCompare(b.symbol));
+      const finalList = [USD, ...cryptos, ...fiatList];
+      setAllCoins(finalList);
 
-      const mixed: Coin[] = [...cryptos];
-      for (const f of sortedFiats) {
-        const idx = mixed.findIndex((x) => f.symbol.localeCompare(x.symbol) < 0);
-        if (idx === -1) mixed.push(f);
-        else mixed.splice(idx, 0, f);
-      }
-
-      setAllCoins(mixed);
-
-      const btc = mixed.find((c) => c.id === "bitcoin");
-      setFromCoin(btc || mixed[0]);
+      setFromCoin(finalList.find((x) => x.id === "bitcoin") || finalList[0]);
       setToCoin(USD);
     }
-
     load();
   }, []);
 
   /* ===========================================================
-        CURRENT PRICE IN USD
+        HELPER: MERGE HOURLY + DAILY
   ============================================================ */
-  async function cryptoToUSD_now(id: string) {
-    if (cryptoNowCache[id]) return cryptoNowCache[id];
+  function mergeHistory(
+    daily: HistoryPoint[],
+    hourly: HistoryPoint[]
+  ): HistoryPoint[] {
+    const map: Record<number, number> = {};
 
-    const r = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`
-    );
-    const d = await r.json();
-    const val = d[id]?.usd ?? 0;
+    daily.forEach((p: HistoryPoint) => {
+      map[p.time] = p.value;
+    });
 
-    cryptoNowCache[id] = val;
-    return val;
-  }
+    hourly.forEach((p: HistoryPoint) => {
+      map[p.time] = p.value;
+    });
 
-  async function fiatToUSD_now(symbol: string) {
-    if (symbol === "USD") return 1;
-
-    if (fiatNowCache[symbol]) return fiatNowCache[symbol];
-
-    const r = await fetch(`https://api.frankfurter.app/latest?from=${symbol}&to=USD`);
-    const d = await r.json();
-    const val = d?.rates?.USD ?? 1;
-
-    fiatNowCache[symbol] = val;
-    return val;
-  }
-
-  /* ===========================================================
-        UPDATE LIVE RESULT
-  ============================================================ */
-  useEffect(() => {
-    async function compute() {
-      if (!fromCoin || !toCoin) return;
-
-      const fromUSD =
-        fromCoin.type === "crypto"
-          ? await cryptoToUSD_now(fromCoin.id)
-          : await fiatToUSD_now(fromCoin.symbol);
-
-      const toUSD =
-        toCoin.type === "crypto"
-          ? await cryptoToUSD_now(toCoin.id)
-          : await fiatToUSD_now(toCoin.symbol);
-
-      if (!amount || Number(amount) <= 0) {
-        setResult(null);
-        return;
-      }
-
-      setResult((Number(amount) * fromUSD) / toUSD);
-    }
-
-    compute();
-  }, [fromCoin, toCoin, amount]);
-
-  /* ===========================================================
-        RANGE → DAYS
-  ============================================================ */
-  function rangeToDays(r: string) {
-    return r === "24H"
-      ? 1
-      : r === "7D"
-      ? 7
-      : r === "1M"
-      ? 30
-      : r === "3M"
-      ? 90
-      : r === "6M"
-      ? 180
-      : 365;
+    return Object.entries(map)
+      .map(([t, v]) => ({
+        time: Number(t) as UTCTimestamp,
+        value: v as number,
+      }))
+      .sort((a, b) => a.time - b.time);
   }
 
   /* ===========================================================
         CRYPTO HISTORY
-=========================================================== */
-async function cryptoHistory(id: string) {
-  if (cryptoHistoryCache[id]) return cryptoHistoryCache[id];
+  ============================================================ */
+  async function cryptoHistory(id: string): Promise<HistoryPoint[]> {
+    if (cryptoHistoryCache[id]) return cryptoHistoryCache[id];
 
-  const hrReq = fetch(
-    `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=90&interval=hourly`
-  );
-  const dyReq = fetch(
-    `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365&interval=daily`
-  );
+    const hrReq = fetch(
+      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=90&interval=hourly`
+    );
+    const dyReq = fetch(
+      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=365&interval=daily`
+    );
 
-  const [hrRes, dyRes] = await Promise.all([hrReq, dyReq]);
-  const hr = await hrRes.json();
-  const dy = await dyRes.json();
+    const [hrRes, dyRes] = await Promise.all([hrReq, dyReq]);
+    const hr = await hrRes.json();
+    const dy = await dyRes.json();
 
-  const hourly: HistoryPoint[] =
-    hr.prices?.map((p: [number, number]) => ({
-      time: Math.floor(p[0] / 1000) as UTCTimestamp,
-      value: p[1],
-    })) ?? [];
+    const hourly =
+      hr.prices?.map((p: [number, number]) => ({
+        time: Math.floor(p[0] / 1000) as UTCTimestamp,
+        value: p[1],
+      })) ?? [];
 
-  const daily: HistoryPoint[] =
-    dy.prices?.map((p: [number, number]) => ({
-      time: Math.floor(p[0] / 1000) as UTCTimestamp,
-      value: p[1],
-    })) ?? [];
+    const daily =
+      dy.prices?.map((p: [number, number]) => ({
+        time: Math.floor(p[0] / 1000) as UTCTimestamp,
+        value: p[1],
+      })) ?? [];
 
-  // FIXED: explicitly type p so TypeScript knows it's a HistoryPoint
-  const map: Record<number, number> = {};
+    const merged = mergeHistory(daily, hourly);
+    cryptoHistoryCache[id] = merged;
+    return merged;
+  }
 
-  daily.forEach((p: HistoryPoint) => {
-    map[p.time] = p.value;
-  });
-
-  hourly.forEach((p: HistoryPoint) => {
-    map[p.time] = p.value;
-  });
-
-  const merged: HistoryPoint[] = Object.entries(map)
-    .map(([t, v]) => ({
-      time: Number(t) as UTCTimestamp,
-      value: v as number,
-    }))
-    .sort((a, b) => a.time - b.time);
-
-  cryptoHistoryCache[id] = merged;
-  return merged;
-}
-
-/* ===========================================================
-      FIAT HISTORY
-=========================================================== */
-
-  async function fiatHistory(symbol: string) {
+  /* ===========================================================
+        FIAT HISTORY (DAILY ONLY)
+  ============================================================ */
+  async function fiatHistory(symbol: string): Promise<HistoryPoint[]> {
     if (fiatHistoryCache[symbol]) return fiatHistoryCache[symbol];
 
-    if (symbol === "USD") {
-      const arr: HistoryPoint[] = [];
-      const now = new Date();
-      for (let i = 0; i < 365; i++) {
-        const t = new Date(now.getTime() - i * 86400000);
-        arr.push({
-          time: Math.floor(t.getTime() / 1000) as UTCTimestamp,
-          value: 1,
-        });
-      }
-      fiatHistoryCache["USD"] = arr.reverse();
-      return arr.reverse();
-    }
+    const url = `https://api.exchangerate.host/timeseries?base=${symbol}&symbols=USD&start_date=2020-01-01&end_date=2030-01-01`;
 
-    const end = new Date();
-    const start = new Date(end.getTime() - 365 * 86400000);
-    const s = start.toISOString().slice(0, 10);
-    const e = end.toISOString().slice(0, 10);
-
-    const r = await fetch(
-      `https://api.frankfurter.app/${s}..${e}?from=${symbol}&to=USD`
-    );
+    const r = await fetch(url);
     const d = await r.json();
 
-    const arr: HistoryPoint[] = Object.entries(d.rates)
-      .map(([date, v]: any) => ({
+    const arr: HistoryPoint[] = Object.entries(d.rates).map(
+      ([date, v]: any) => ({
         time: Math.floor(new Date(date).getTime() / 1000) as UTCTimestamp,
         value: v.USD,
-      }))
-      .sort((a, b) => a.time - b.time);
+      })
+    );
+
+    arr.sort((a, b) => a.time - b.time);
 
     fiatHistoryCache[symbol] = arr;
     return arr;
   }
 
   /* ===========================================================
-        MERGE NEAREST
-  ============================================================ */
-  function mergeNearest(base: HistoryPoint[], comp: HistoryPoint[]) {
-    const out: HistoryPoint[] = [];
-    let j = 0;
-
-    for (let i = 0; i < base.length; i++) {
-      const t = base[i].time;
-
-      while (
-        j < comp.length - 1 &&
-        Math.abs(comp[j + 1].time - t) < Math.abs(comp[j].time - t)
-      ) {
-        j++;
-      }
-
-      out.push({
-        time: t,
-        value: base[i].value / comp[j].value,
-      });
-    }
-
-    return out;
-  }
-
-  /* ===========================================================
-        HISTORY BUILDER
+        COMPUTE HISTORY
   ============================================================ */
   async function computeHistory() {
-    if (!fromCoin || !toCoin) return lastValidData.current;
+    if (!fromCoin || !toCoin) return;
 
-    const days = rangeToDays(range);
+    const fromIsCrypto = fromCoin.type === "crypto";
+    const toIsCrypto = toCoin.type === "crypto";
 
-    const [fromFull, toFull] = await Promise.all([
-      fromCoin.type === "crypto"
-        ? cryptoHistory(fromCoin.id)
-        : fiatHistory(fromCoin.symbol),
-      toCoin.type === "crypto"
-        ? cryptoHistory(toCoin.id)
-        : fiatHistory(toCoin.symbol),
-    ]);
+    const fromHistory = fromIsCrypto
+      ? await cryptoHistory(fromCoin.id)
+      : await fiatHistory(fromCoin.symbol);
 
-    const fromSlice = fromFull.slice(-days);
-    const toSlice = toFull.slice(-days);
+    const toHistory = toIsCrypto
+      ? await cryptoHistory(toCoin.id)
+      : await fiatHistory(toCoin.symbol);
 
-    const merged = mergeNearest(fromSlice, toSlice);
+    // Ratio = fromUSD / toUSD
+    const ratio: HistoryPoint[] = [];
 
-    if (merged.length) lastValidData.current = merged;
+    let i = 0;
+    let j = 0;
 
-    return lastValidData.current;
+    while (i < fromHistory.length && j < toHistory.length) {
+      if (fromHistory[i].time === toHistory[j].time) {
+        ratio.push({
+          time: fromHistory[i].time,
+          value: fromHistory[i].value / toHistory[j].value,
+        });
+        i++;
+        j++;
+      } else if (fromHistory[i].time < toHistory[j].time) {
+        i++;
+      } else j++;
+    }
+
+    lastValidData.current = ratio;
+
+    // Apply range
+    const now = Math.floor(Date.now() / 1000);
+    const cut =
+      range === "24H"
+        ? now - 24 * 3600
+        : range === "7D"
+        ? now - 7 * 86400
+        : range === "1M"
+        ? now - 30 * 86400
+        : range === "3M"
+        ? now - 90 * 86400
+        : range === "6M"
+        ? now - 180 * 86400
+        : now - 365 * 86400;
+
+    const filtered = ratio.filter((p) => p.time >= cut);
+
+    if (areaSeriesRef.current) {
+      areaSeriesRef.current.setData(filtered);
+    }
   }
 
   /* ===========================================================
-        CHART (LIGHT + DARK MODE)
+        CONVERSION CALCULATION
   ============================================================ */
   useEffect(() => {
-    async function drawChart() {
-      if (!chartRef.current) return;
+    async function compute() {
+      if (!fromCoin || !toCoin) return;
 
-      const container = chartRef.current;
-      container.innerHTML = "";
+      const fromIsCrypto = fromCoin.type === "crypto";
+      const toIsCrypto = toCoin.type === "crypto";
 
-      const isDark = theme === "dark";
+      const fromPrice = fromIsCrypto
+        ? (await cryptoHistory(fromCoin.id)).at(-1)?.value ?? 0
+        : (await fiatHistory(fromCoin.symbol)).at(-1)?.value ?? 0;
 
-      const chart = createChart(container, {
-        width: container.clientWidth,
-        height: 390,
-        layout: {
-          background: { color: isDark ? "#111111" : "#ffffff" },
-          textColor: isDark ? "#e6e6e6" : "#1a1a1a",
-        },
-        grid: {
-          vertLines: { color: isDark ? "#222222" : "#e6e6e6" },
-          horzLines: { color: isDark ? "#222222" : "#e6e6e6" },
-        },
-        timeScale: {
-          timeVisible: true,
-          secondsVisible: false,
-        },
+      const toPrice = toIsCrypto
+        ? (await cryptoHistory(toCoin.id)).at(-1)?.value ?? 0
+        : (await fiatHistory(toCoin.symbol)).at(-1)?.value ?? 0;
+
+      const amt = Number(amount) || 0;
+      const result = (amt * fromPrice) / toPrice;
+
+      setConversion({
+        fromUSD: fromPrice,
+        toUSD: toPrice,
+        result,
       });
-
-      chartInstance.current = chart;
-
-      const area = chart.addAreaSeries({
-  lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-  topColor: isDark ? "rgba(78,161,247,0.4)" : "rgba(59,130,246,0.4)",
-  bottomColor: "rgba(0,0,0,0)",
-});
-
-areaSeriesRef.current = area;   // <--- IMPORTANT
-
-
-      const data = lastValidData.current;
-      if (data.length) area.setData(data);
-
-      const resize = () =>
-        chart.resize(container.clientWidth, 390);
-      window.addEventListener("resize", resize);
-
-      return () => {
-        window.removeEventListener("resize", resize);
-        chart.remove();
-      };
     }
-
-    drawChart();
-  }, [fromCoin, toCoin, range, theme]);
-
-  /* ===========================================================
-      REFRESH HISTORY WHEN INPUTS CHANGE
-=========================================================== */
-useEffect(() => {
-  computeHistory().then(() => {
-    // UPDATED: use the stored area series ref instead of getSeries()
-    if (areaSeriesRef.current && lastValidData.current.length) {
-      areaSeriesRef.current.setData(lastValidData.current);
-    }
-  });
-}, [fromCoin, toCoin, range]);
-
+    compute();
+  }, [fromCoin, toCoin, amount]);
 
   /* ===========================================================
-        DROPDOWN FILTER
+        INIT CHART
   ============================================================ */
-  function filterCoins(input: string) {
-    if (!input) return allCoins;
-    const s = input.toLowerCase();
-    return allCoins.filter(
-      (c) =>
-        c.symbol.toLowerCase().includes(s) ||
-        c.name.toLowerCase().includes(s)
-    );
-  }
+  useEffect(() => {
+    if (!chartRef.current) return;
+
+    chartInstance.current?.remove();
+
+    const chart = createChart(chartRef.current, {
+      height: 380,
+      layout: { textColor: "#000", background: { color: "transparent" } },
+      grid: { vertLines: { color: "#eee" }, horzLines: { color: "#eee" } },
+      timeScale: { borderColor: "#ccc" },
+    });
+
+    const area = chart.addAreaSeries({
+      lineColor: "#3b82f6",
+      topColor: "rgba(59,130,246,0.4)",
+      bottomColor: "rgba(59,130,246,0)",
+    });
+
+    chartInstance.current = chart;
+    areaSeriesRef.current = area;
+
+    computeHistory();
+  }, [fromCoin, toCoin]);
 
   /* ===========================================================
-        DROPDOWN ROW
+        REFRESH WHEN RANGE CHANGES
   ============================================================ */
-  function renderRow(coin: Coin, type: "from" | "to") {
-    const disabled =
-      (type === "from" && coin.id === toCoin?.id) ||
-      (type === "to" && coin.id === fromCoin?.id);
-
-    return (
-      <div
-        key={coin.id}
-        className={`dropdown-row ${disabled ? "dropdown-disabled" : ""}`}
-        onClick={() => {
-          if (disabled) return;
-          type === "from" ? setFromCoin(coin) : setToCoin(coin);
-          setOpenDropdown(null);
-          setFromSearch("");
-          setToSearch("");
-        }}
-      >
-        <img src={coin.image} className="dropdown-flag" />
-        <div className="dropdown-text">
-          <div className="dropdown-symbol">{coin.symbol}</div>
-          <div className="dropdown-name">{coin.name}</div>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    computeHistory();
+  }, [range]);
 
   /* ===========================================================
         SWAP
   ============================================================ */
-  function swapCoins() {
+  function handleSwap() {
     if (!fromCoin || !toCoin) return;
+    const f = fromCoin;
     setFromCoin(toCoin);
-    setToCoin(fromCoin);
+    setToCoin(f);
+
+    if (fromCoin.type === "fiat" && toCoin.type === "fiat") {
+      if (range === "24H") setRange("7D");
+    }
   }
 
   /* ===========================================================
-        UI (IDENTICAL TO page 11)
-  ============================================================ */
+        FIAT-FIAT: HIDE 24H
+=========================================================== */
+  const hide24h =
+    fromCoin?.type === "fiat" && toCoin?.type === "fiat";
+
+  if (hide24h && range === "24H") {
+    setRange("7D");
+  }
+
+  /* ===========================================================
+        UI
+=========================================================== */
   return (
     <div className="page-container">
-      {/* CENTERED ROW */}
-      <div className="selector-row">
-        {/* AMOUNT */}
+
+      {/* ======================== INPUTS ======================== */}
+      <div className="top-row">
         <div className="amount-box">
-          <h3>AMOUNT</h3>
+          <label>AMOUNT</label>
           <input
-            className="amount-input"
+            type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          {(!amount || Number(amount) <= 0) && (
-            <div className="amount-error">Enter a Number Greater than 0</div>
-          )}
         </div>
 
-        {/* FROM */}
-        <div className="selector-col" ref={fromPanelRef}>
-          <h3>FROM</h3>
-          <div
-            className="selector-box"
-            onClick={() =>
-              setOpenDropdown(openDropdown === "from" ? null : "from")
+        <div className="coin-box">
+          <label>FROM</label>
+          <select
+            value={fromCoin?.id || ""}
+            onChange={(e) =>
+              setFromCoin(allCoins.find((c) => c.id === e.target.value) || null)
             }
           >
-            <img src={fromCoin?.image} className="selector-img" />
-            <div>
-              <div className="selector-symbol">{fromCoin?.symbol}</div>
-              <div className="selector-name">{fromCoin?.name}</div>
-            </div>
-          </div>
-
-          {openDropdown === "from" && (
-            <div className="dropdown-panel">
-              <input
-                className="dropdown-search"
-                value={fromSearch}
-                onChange={(e) => setFromSearch(e.target.value)}
-                placeholder="Search..."
-              />
-              {filterCoins(fromSearch).map((c) => renderRow(c, "from"))}
-            </div>
-          )}
+            {allCoins.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.symbol}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* SWAP */}
-        <div className="swap-circle" onClick={swapCoins}>
-          <div className="swap-icon" />
-        </div>
+        <button className="swap-btn" onClick={handleSwap}>⇅</button>
 
-        {/* TO */}
-        <div className="selector-col" ref={toPanelRef}>
-          <h3>TO</h3>
-          <div
-            className="selector-box"
-            onClick={() =>
-              setOpenDropdown(openDropdown === "to" ? null : "to")
+        <div className="coin-box">
+          <label>TO</label>
+          <select
+            value={toCoin?.id || ""}
+            onChange={(e) =>
+              setToCoin(allCoins.find((c) => c.id === e.target.value) || null)
             }
           >
-            <img src={toCoin?.image} className="selector-img" />
-            <div>
-              <div className="selector-symbol">{toCoin?.symbol}</div>
-              <div className="selector-name">{toCoin?.name}</div>
-            </div>
-          </div>
-
-          {openDropdown === "to" && (
-            <div className="dropdown-panel">
-              <input
-                className="dropdown-search"
-                value={toSearch}
-                onChange={(e) => setToSearch(e.target.value)}
-                placeholder="Search..."
-              />
-              {filterCoins(toSearch).map((c) => renderRow(c, "to"))}
-            </div>
-          )}
+            {allCoins.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.symbol}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* RESULT */}
-      {result !== null && (
-        <div className="result-box">
-          {amount} {fromCoin?.symbol} ={" "}
-          <strong>
-            {result.toLocaleString(undefined, {
-              maximumFractionDigits: 8,
-            })}{" "}
-            {toCoin?.symbol}
-          </strong>
-        </div>
-      )}
+      {/* ======================== RESULTS ======================== */}
+      <div className="result-section">
+        <h2>
+          {amount} {fromCoin?.symbol} → {toCoin?.symbol}
+        </h2>
 
-      {/* RANGE BUTTONS */}
-      <div className="range-buttons">
-        {["24H", "7D", "1M", "3M", "6M", "1Y"].map((r) => (
+        <div className="result-big">
+          {conversion.result.toLocaleString(undefined, {
+            maximumFractionDigits: 6,
+          })}{" "}
+          {toCoin?.symbol}
+        </div>
+
+        <div className="sub-info">
+          1 {fromCoin?.symbol} ={" "}
+          {(conversion.fromUSD / conversion.toUSD).toLocaleString(undefined, {
+            maximumFractionDigits: 6,
+          })}{" "}
+          {toCoin?.symbol}
+        </div>
+      </div>
+
+      {/* ======================== RANGE BUTTONS ======================== */}
+      <div className="range-row">
+        {!hide24h && (
           <button
-            key={r}
-            className={range === r ? "range-active" : "range-btn"}
-            onClick={() => setRange(r)}
+            className={range === "24H" ? "active" : ""}
+            onClick={() => setRange("24H")}
           >
-            {r}
+            24H
           </button>
-        ))}
+        )}
+        <button
+          className={range === "7D" ? "active" : ""}
+          onClick={() => setRange("7D")}
+        >
+          7D
+        </button>
+        <button
+          className={range === "1M" ? "active" : ""}
+          onClick={() => setRange("1M")}
+        >
+          1M
+        </button>
+        <button
+          className={range === "3M" ? "active" : ""}
+          onClick={() => setRange("3M")}
+        >
+          3M
+        </button>
+        <button
+          className={range === "6M" ? "active" : ""}
+          onClick={() => setRange("6M")}
+        >
+          6M
+        </button>
+        <button
+          className={range === "1Y" ? "active" : ""}
+          onClick={() => setRange("1Y")}
+        >
+          1Y
+        </button>
       </div>
 
-      {/* CHART */}
-      <div ref={chartRef} className="chart-container" />
+      {/* ======================== CHART ======================== */}
+      <div className="chart-wrapper">
+        <div ref={chartRef} className="chart-area" />
+      </div>
     </div>
   );
 }
