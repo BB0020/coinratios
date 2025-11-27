@@ -1,6 +1,6 @@
-/* ----------------------------------------------------
-   RESET
----------------------------------------------------- */
+/* ============================================
+   BASE RESET
+============================================ */
 * {
   margin: 0;
   padding: 0;
@@ -11,60 +11,280 @@ html,
 body {
   width: 100%;
   height: 100%;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
-  transition: background 0.25s ease, color 0.25s ease;
+  font-family: Inter, sans-serif;
+  background: #f5f7fa;
+  color: #111;
 }
 
-/* ----------------------------------------------------
-   LIGHT MODE (default)
----------------------------------------------------- */
-body.light {
-  background: #f7f8fa;
-  color: #0f0f0f;
+.dark body {
+  background: #0f0f0f;
+  color: #eee;
 }
 
-body.light .theme-toggle-button {
-  background: #e9e9e9;
-  border: 1px solid #cfcfcf;
-  color: #333;
+/* ============================================
+   MAIN PAGE WRAPPER
+============================================ */
+.main-container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 30px 20px 60px 20px;
 }
 
-/* ----------------------------------------------------
-   DARK MODE
----------------------------------------------------- */
-body.dark {
-  background: #0d0f11;
-  color: #f4f4f5;
-}
-
-body.dark .theme-toggle-button {
-  background: #1d1f22;
-  border: 1px solid #3c3f44;
-  color: #dcdcdc;
-}
-
-/* ----------------------------------------------------
-   THEME TOGGLE BUTTON
----------------------------------------------------- */
-.theme-toggle-button {
-  width: 40px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: all 0.25s ease;
-}
-
-.theme-toggle-button:hover {
-  opacity: 0.8;
-}
-
-/* Optional top bar alignment */
+/* ============================================
+   TOP BAR (THEME TOGGLE)
+============================================ */
 .top-bar {
   width: 100%;
+  text-align: right;
+  margin-bottom: 15px;
+}
+
+/* ============================================
+   AMOUNT INPUT
+============================================ */
+.amount-input {
+  width: 100%;
+  padding: 14px;
+  font-size: 22px;
+  border-radius: 12px;
+  border: 1px solid #ccc;
+  background: #fff;
+  font-weight: 500;
+}
+
+.dark .amount-input {
+  background: #1c1c1c;
+  border-color: #333;
+  color: #eee;
+}
+
+/* ============================================
+   SELECTOR ROW (FROM | SWAP | TO)
+============================================ */
+.selector-row {
   display: flex;
-  justify-content: flex-end;
-  padding: 12px 24px;
+  justify-content: center;
+  align-items: center;
+  gap: 26px;
+  margin-top: 20px;
+  margin-bottom: 40px;
+}
+
+/* ============================================
+   COIN BOX (From / To)
+============================================ */
+.coin-box {
+  width: 260px;
+  height: 90px;
+  padding: 16px 18px;
+  border: 1px solid #ccc;
+  border-radius: 14px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.coin-box:hover {
+  background: #f1f1f1;
+}
+
+.dark .coin-box {
+  background: #1a1a1a;
+  border-color: #333;
+}
+
+.dark .coin-box:hover {
+  background: #222;
+}
+
+/* Coin Logo */
+.coin-logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+}
+
+/* Coin Text */
+.coin-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.15;
+}
+
+.coin-symbol {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.coin-name {
+  font-size: 15px;
+  opacity: 0.7;
+}
+
+/* ============================================
+   SWAP BUTTON
+============================================ */
+.swap-btn {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 1px solid #ccc;
+  background: #fff;
+  font-size: 22px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.swap-btn:hover {
+  background: #f0f0f0;
+}
+
+.dark .swap-btn {
+  background: #1a1a1a;
+  border-color: #333;
+  color: #eee;
+}
+
+.dark .swap-btn:hover {
+  background: #2a2a2a;
+}
+
+/* ============================================
+   DROPDOWN PANEL
+============================================ */
+.dropdown-panel {
+  position: absolute;
+  width: 260px;
+  max-height: 380px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 14px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-top: 6px;
+}
+
+.dark .dropdown-panel {
+  background: #0f0f0f;
+  border-color: #333;
+}
+
+/* Search Bar */
+.dropdown-search {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-bottom: 1px solid #ddd;
+  font-size: 16px;
+}
+
+.dark .dropdown-search {
+  background: #1a1a1a;
+  border-color: #333;
+  color: #eee;
+}
+
+/* Dropdown Row */
+.dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dropdown-row:hover {
+  background: #f5f5f5;
+}
+
+.dark .dropdown-row:hover {
+  background: #1c1c1c;
+}
+
+.dropdown-row img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+
+.dropdown-row-symbol {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.dropdown-row-name {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+/* ============================================
+   RESULT SECTION
+============================================ */
+.result-big {
+  text-align: center;
+  font-size: 60px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.dark .result-big {
+  color: #fff;
+}
+
+.result-sub {
+  text-align: center;
+  font-size: 18px;
+  opacity: 0.85;
+  margin-bottom: 35px;
+}
+
+.dark .result-sub {
+  color: #ccc;
+}
+
+/* ============================================
+   RANGE BUTTONS
+============================================ */
+.range-row {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 20px;
+  margin-bottom: 25px;
+}
+
+.range-btn {
+  padding: 10px 18px;
+  border-radius: 20px;
+  border: 1px solid #ccc;
+  background: #fafafa;
+  cursor: pointer;
+  font-size: 15px;
+  transition: 0.15s ease;
+}
+
+.range-btn:hover {
+  background: #eee;
+}
+
+.range-btn.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+/* ============================================
+   CHART BOX
+============================================ */
+.chart-box {
+  width: 100%;
+  height: 390px;
+  margin-top: 20px;
+  border-radius: 12px;
+  overflow: hidden;
 }

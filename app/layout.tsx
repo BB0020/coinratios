@@ -1,16 +1,19 @@
 import "./globals.css";
-import { ReactNode } from "react";
+import type { Metadata } from "next";
 
-export const metadata = {
-  title: "CoinRatios",
-  description: "Live crypto & fiat pair converter with charts",
+export const metadata: Metadata = {
+  title: "Crypto Ratio Converter",
+  description: "Convert between any crypto or fiat pair and view historical charts.",
 };
 
-// ❗ This MUST remain a server component (NO "use client")
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="light">
+      <body className="">
         {children}
       </body>
     </html>
