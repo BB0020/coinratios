@@ -1,290 +1,204 @@
-/* ============================================
-   BASE RESET
-============================================ */
-* {
+:root {
+  --bg: #f7f8fa;
+  --text: #1a1a1a;
+  --card-bg: #ffffff;
+  --card-border: #dcdcdc;
+  --accent: #3b82f6;
+}
+
+html.dark {
+  --bg: #0f0f0f;
+  --text: #f2f2f2;
+  --card-bg: #1a1a1a;
+  --card-border: #333;
+  --accent: #4ea1f7;
+}
+
+body {
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
-html,
-body {
-  width: 100%;
-  height: 100%;
-  font-family: Inter, sans-serif;
-  background: #f5f7fa;
-  color: #111;
+h3 {
+  margin: 0 0 6px 3px;
+  font-size: 16px;
 }
 
-.dark body {
-  background: #0f0f0f;
-  color: #eee;
-}
-
-/* ============================================
-   MAIN PAGE WRAPPER
-============================================ */
-.main-container {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 30px 20px 60px 20px;
-}
-
-/* ============================================
-   TOP BAR (THEME TOGGLE)
-============================================ */
-.top-bar {
-  width: 100%;
-  text-align: right;
-  margin-bottom: 15px;
-}
-
-/* ============================================
-   AMOUNT INPUT
-============================================ */
 .amount-input {
-  width: 100%;
+  width: 220px;
   padding: 14px;
-  font-size: 22px;
   border-radius: 12px;
-  border: 1px solid #ccc;
-  background: #fff;
-  font-weight: 500;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 18px;
 }
 
-.dark .amount-input {
-  background: #1c1c1c;
-  border-color: #333;
-  color: #eee;
-}
-
-/* ============================================
-   SELECTOR ROW (FROM | SWAP | TO)
-============================================ */
-.selector-row {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 26px;
-  margin-top: 20px;
-  margin-bottom: 40px;
-}
-
-/* ============================================
-   COIN BOX (From / To)
-============================================ */
-.coin-box {
+/* SELECTOR BOX */
+.selector-box {
   width: 260px;
-  height: 90px;
-  padding: 16px 18px;
-  border: 1px solid #ccc;
+  padding: 14px 16px;
   border-radius: 14px;
-  background: #fff;
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
   cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.coin-box:hover {
-  background: #f1f1f1;
-}
-
-.dark .coin-box {
-  background: #1a1a1a;
-  border-color: #333;
-}
-
-.dark .coin-box:hover {
-  background: #222;
-}
-
-/* Coin Logo */
-.coin-logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-}
-
-/* Coin Text */
-.coin-text {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  line-height: 1.15;
+  gap: 14px;
+  align-items: center;
+  transition: 0.15s;
 }
 
-.coin-symbol {
-  font-size: 22px;
+.selector-box:hover {
+  border-color: var(--accent);
+}
+
+.selector-img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.selector-symbol {
+  font-size: 20px;
   font-weight: 700;
 }
 
-.coin-name {
-  font-size: 15px;
+.selector-name {
+  font-size: 14px;
   opacity: 0.7;
+  margin-top: 2px;
 }
 
-/* ============================================
-   SWAP BUTTON
-============================================ */
-.swap-btn {
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  border: 1px solid #ccc;
-  background: #fff;
-  font-size: 22px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.swap-btn:hover {
-  background: #f0f0f0;
-}
-
-.dark .swap-btn {
-  background: #1a1a1a;
-  border-color: #333;
-  color: #eee;
-}
-
-.dark .swap-btn:hover {
-  background: #2a2a2a;
-}
-
-/* ============================================
-   DROPDOWN PANEL
-============================================ */
+/* DROPDOWN */
 .dropdown-panel {
-  position: absolute;
   width: 260px;
-  max-height: 380px;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 14px;
-  overflow-y: auto;
-  z-index: 100;
+  position: absolute;
+  top: 100%;
   margin-top: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  max-height: 380px;
+  overflow-y: auto;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+  z-index: 9999;
 }
 
-.dark .dropdown-panel {
-  background: #0f0f0f;
-  border-color: #333;
-}
-
-/* Search Bar */
 .dropdown-search {
   width: 100%;
   padding: 12px;
   border: none;
-  border-bottom: 1px solid #ddd;
-  font-size: 16px;
+  border-bottom: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
 }
 
-.dark .dropdown-search {
-  background: #1a1a1a;
-  border-color: #333;
-  color: #eee;
-}
-
-/* Dropdown Row */
 .dropdown-row {
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  gap: 12px;
+  transition: background 0.15s;
 }
 
 .dropdown-row:hover {
-  background: #f5f5f5;
+  background: rgba(59, 130, 246, 0.15);
 }
 
-.dark .dropdown-row:hover {
-  background: #1c1c1c;
+.dropdown-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dropdown-disabled:hover {
+  background: transparent !important;
 }
 
-.dropdown-row img {
-  width: 42px;
-  height: 42px;
+.dropdown-selected {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+.dropdown-flag {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
+  object-fit: cover;
 }
 
-.dropdown-row-symbol {
-  font-size: 17px;
-  font-weight: 600;
+.dropdown-symbol {
+  font-size: 16px;
+  font-weight: 700;
 }
 
-.dropdown-row-name {
-  font-size: 14px;
-  opacity: 0.7;
+.dropdown-name {
+  font-size: 13px;
+  opacity: 0.75;
+  margin-top: 1px;
 }
 
-/* ============================================
-   RESULT SECTION
-============================================ */
-.result-big {
-  text-align: center;
-  font-size: 60px;
-  font-weight: 800;
-  margin-bottom: 6px;
+/* SWAP */
+.swap-circle {
+  width: 62px;
+  height: 62px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: 0.25s ease;
+  color: var(--text); /* THIS makes the SVG auto-match theme */
 }
 
-.dark .result-big {
+.swap-circle:hover {
+  background: var(--accent);
   color: #fff;
 }
 
-.result-sub {
-  text-align: center;
-  font-size: 18px;
-  opacity: 0.85;
-  margin-bottom: 35px;
+.swap-icon {
+  width: 30px;
+  height: 30px;
+  background-repeat: no-repeat;
+  background-size: contain;
+  transition: transform 0.3s;
+  background-image: url("data:image/svg+xml,%3Csvg stroke='currentColor' stroke-width='2' fill='none' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 7h14l-4-4m4 4l-4 4'/%3E%3Cpath d='M17 17H3l4 4m-4-4l4-4'/%3E%3C/svg%3E");
 }
 
-.dark .result-sub {
-  color: #ccc;
+.swap-circle:hover .swap-icon {
+  transform: rotate(180deg);
 }
 
-/* ============================================
-   RANGE BUTTONS
-============================================ */
-.range-row {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  margin-top: 20px;
-  margin-bottom: 25px;
-}
-
+/* RANGE BUTTONS */
 .range-btn {
   padding: 10px 18px;
-  border-radius: 20px;
-  border: 1px solid #ccc;
-  background: #fafafa;
+  margin: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: 0.15s;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.range-btn-active {
+  padding: 10px 18px;
+  margin: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
   cursor: pointer;
   font-size: 15px;
-  transition: 0.15s ease;
-}
-
-.range-btn:hover {
-  background: #eee;
-}
-
-.range-btn.active {
-  background: #3b82f6;
-  border-color: #3b82f6;
-  color: white;
-}
-
-/* ============================================
-   CHART BOX
-============================================ */
-.chart-box {
-  width: 100%;
-  height: 390px;
-  margin-top: 20px;
-  border-radius: 12px;
-  overflow: hidden;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.45);
 }
