@@ -93,43 +93,62 @@ export default function Page() {
     return () => obs.disconnect();
   }, []);
 
-  /* ===========================================================
-        LOAD COINS + INSERT FIAT
-  ============================================================ */
-  useEffect(() => {
-    async function loadCoins() {
-      const res = await fetch(
-        "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
+  /* ------------------------------
+      LOAD COINS + INSERT FIAT
+------------------------------ */
+useEffect(() => {
+  async function loadCoins() {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
+    );
+    const data = await res.json();
+
+    // FIXED: ensure crypto objects strictly match interface Coin
+    const cryptos: Coin[] = data.map((c: any) => ({
+      id: c.id,
+      symbol: c.symbol.toUpperCase(),
+      name: c.name,
+      image: c.image,
+      type: "crypto",   // <— MUST BE EXACT STRING LITERAL
+    }));
+
+    // Sort fiat list
+    const sortedFiats: Coin[] = fiatList.map(f => ({
+      ...f,
+      type: "fiat",     // <— ENSURE type literal
+    }));
+
+    // Merge crypto + fiat in alphabetical order
+    const mixed = [...cryptos];
+    for (const f of sortedFiats) {
+      const idx = mixed.findIndex(x =>
+        f.symbol.localeCompare(x.symbol) < 0
       );
-      const data = await res.json();
-
-      const cryptos: Coin[] = data.map((c: any) => ({
-        id: c.id,
-        symbol: c.symbol.toUpperCase(),
-        name: c.name,
-        image: c.image,
-        type: "crypto",
-      }));
-
-      const sortedFiats = [...fiatList].sort((a, b) =>
-        a.symbol.localeCompare(b.symbol)
-      );
-
-      const mixed = [...cryptos];
-      for (const f of sortedFiats) {
-        const idx = mixed.findIndex((x) => f.symbol.localeCompare(x.symbol) < 0);
-        if (idx === -1) mixed.push(f);
-        else mixed.splice(idx, 0, f);
-      }
-
-      const finalList = [USD, ...mixed];
-      setAllCoins(finalList);
-
-      setFromCoin(finalList.find((c) => c.id === "bitcoin") || finalList[1]);
-      setToCoin(USD);
+      if (idx === -1) mixed.push(f);
+      else mixed.splice(idx, 0, f);
     }
-    loadCoins();
-  }, []);
+
+    const finalList: Coin[] = [
+      {
+        id: "USD",
+        symbol: "USD",
+        name: "US Dollar",
+        type: "fiat",   // <— IMPORTANT
+      },
+      ...mixed,
+    ];
+
+    setAllCoins(finalList);
+
+    // Default: Bitcoin → USD
+    const btc = finalList.find(c => c.id === "bitcoin");
+    setFromCoin(btc ?? finalList[1]);
+    setToCoin(finalList[0]); // USD
+  }
+
+  loadCoins();
+}, []);
+
 
   /* ===========================================================
         OUTSIDE CLICK CLOSE DROPDOWNS
@@ -269,16 +288,24 @@ export default function Page() {
       })) ?? [];
 
     // Merge + remove duplicates
-    const map: Record<string, number> = {};
-    dailyPts.forEach((p) => (map[p.time] = p.value));
-    hourlyPts.forEach((p) => (map[p.time] = p.value));
+const map: Record<number, number> = {};
 
-    const merged: HistoryPoint[] = Object.entries(map)
-      .map(([t, v]) => ({
-        time: Number(t) as UTCTimestamp,
-        value: v as number,
-      }))
-      .sort((a, b) => a.time - b.time);
+// FIX: explicitly type p as HistoryPoint
+dailyPts.forEach((p: HistoryPoint) => {
+  map[p.time] = p.value;
+});
+
+hourlyPts.forEach((p: HistoryPoint) => {
+  map[p.time] = p.value;
+});
+
+const merged: HistoryPoint[] = Object.entries(map)
+  .map(([t, v]) => ({
+    time: Number(t) as UTCTimestamp,
+    value: v as number,
+  }))
+  .sort((a, b) => a.time - b.time);
+
 
     cryptoHistoryCache[cacheKey] = merged;
     return merged;
