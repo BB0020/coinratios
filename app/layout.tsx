@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import "./globals.css";
+import { useEffect, useState } from "react";
+
+export const metadata = {
+  title: "Coin Ratios",
+  description: "Crypto & fiat ratio converter with charts",
+};
 
 export default function RootLayout({
   children,
@@ -10,35 +15,38 @@ export default function RootLayout({
 }) {
   const [theme, setTheme] = useState("light");
 
+  // Load initial theme from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("theme");
-    if (saved) setTheme(saved);
+    if (saved === "light" || saved === "dark") {
+      setTheme(saved);
+      document.documentElement.className = saved;
+    }
   }, []);
 
+  // Apply theme + store in localStorage
   useEffect(() => {
     document.documentElement.className = theme;
     localStorage.setItem("theme", theme);
   }, [theme]);
 
+  function toggleTheme() {
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  }
+
   return (
-    <html>
+    <html lang="en">
       <body>
-        <div style={{ textAlign: "right", padding: "16px 22px" }}>
-          <button
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            style={{
-              padding: "8px 16px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: "var(--card-bg)",
-              color: "var(--text)",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
-          </button>
-        </div>
+        {/* UPGRADED THEME TOGGLE */}
+        <button
+          onClick={toggleTheme}
+          className={`theme-toggle ${theme === "dark" ? "dark-mode" : ""}`}
+        >
+          <div className="toggle-slider">
+            <span className="icon sun">☀️</span>
+            <span className="icon moon">🌙</span>
+          </div>
+        </button>
 
         {children}
       </body>
