@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createChart, UTCTimestamp } from "lightweight-charts";
+import ThemeToggle from "./ThemeToggle";
+
 
 /* ===========================================================
       TYPES
@@ -271,6 +273,8 @@ export default function Page() {
     load();
   }, []);
 
+  
+  
   /* ===========================================================
         REALTIME CONVERSION
   ============================================================ */
@@ -473,10 +477,21 @@ export default function Page() {
     };
   }, [fromCoin, toCoin, range, theme]);
 
-  /* ===========================================================
-        RENDER UI
-  ============================================================ */
-  return (
+/* ===========================================================
+      RENDER UI
+=========================================================== */
+return (
+  <>
+    {/* ------------------------------
+          THEME TOGGLE BAR
+        ------------------------------ */}
+    <div className="top-bar">
+      <ThemeToggle />
+    </div>
+
+    {/* ------------------------------
+          MAIN CONVERTER UI
+        ------------------------------ */}
     <div className="mt-8 max-w-3xl mx-auto px-4">
       <h1 className="text-center text-3xl font-bold mb-6">
         Crypto Ratio Converter
@@ -574,5 +589,7 @@ export default function Page() {
         className="w-full h-[390px] border rounded"
       ></div>
     </div>
-  );
+  </>
+);
+
 }
