@@ -1,156 +1,237 @@
-/* ----------------------------------------------------------
-   RESET / BASE
------------------------------------------------------------ */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* ------------------------------------------------------ */
+/* THEME VARIABLES */
+/* ------------------------------------------------------ */
 
-html.light {
-  --bg: #ffffff;
-  --text: #111111;
-  --panel: #f9f9f9;
+:root {
+  --bg: #f7f8fa;
+  --text: #1a1a1a;
+  --card-bg: #ffffff;
+  --card-border: #dedede;
+  --accent: #3b82f6;
 }
 
 html.dark {
   --bg: #111111;
-  --text: #e5e5e5;
-  --panel: #1a1a1a;
+  --text: #f1f1f1;
+  --card-bg: #1a1a1a;
+  --card-border: #333;
+  --accent: #4ea1f7;
 }
+
+/* ------------------------------------------------------ */
+/* BASE */
+/* ------------------------------------------------------ */
 
 body {
+  margin: 0;
+  padding: 0;
   background: var(--bg);
   color: var(--text);
-  transition: background 0.25s, color 0.25s;
-  font-family: system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
-/* ----------------------------------------------------------
-   PAGE WRAPPER
------------------------------------------------------------ */
-.page-wrapper {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 30px 20px;
+h3 {
+  margin: 0 0 6px 2px;
+  font-size: 16px;
 }
 
-/* ----------------------------------------------------------
-   TOP CONTROLS (amount / from / swap / to)
------------------------------------------------------------ */
-.top-controls {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 18px;
-  margin-bottom: 20px;
-}
+/* ------------------------------------------------------ */
+/* SELECTOR BOX (FROM/TO) */
+/* ------------------------------------------------------ */
 
-/* amount */
-.amount-section label,
-.from-section label,
-.to-section label {
-  font-size: 14px;
-  margin-bottom: 4px;
-  display: block;
-}
-
-.amount-input {
-  width: 120px;
-  padding: 8px;
-  border: 1px solid #bbb;
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--text);
-}
-
-/* from/to selects */
-.from-section select,
-.to-section select {
-  width: 130px;
-  padding: 8px;
-  border: 1px solid #bbb;
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--text);
-}
-
-/* swap button */
-.swap-button {
-  background: var(--panel);
-  padding: 8px 10px;
-  border-radius: 8px;
+.selector-box {
+  width: 260px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
   cursor: pointer;
-  font-size: 22px;
-  user-select: none;
-  transition: background 0.2s;
-  border: 1px solid #bbb;
-}
-.swap-button:hover {
-  background: #ddd;
-}
-html.dark .swap-button:hover {
-  background: #333;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: 0.15s;
+  position: relative;
 }
 
-/* ----------------------------------------------------------
-   RESULT BOX
------------------------------------------------------------ */
-.result-box {
-  margin: 10px auto 25px auto;
+.selector-box:hover {
+  border-color: var(--accent);
+}
+
+.selector-img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* SYMBOL + NAME: stacked vertically */
+.selector-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.selector-symbol {
   font-size: 20px;
-  text-align: center;
+  font-weight: 700;
+  line-height: 20px;
 }
 
-.invalid-msg {
-  color: #ff4d4d;
+.selector-name {
+  font-size: 14px;
+  opacity: 0.7;
+  margin-top: 2px;
+}
+
+/* ------------------------------------------------------ */
+/* DROPDOWN PANEL */
+/* ------------------------------------------------------ */
+
+.dropdown-panel {
+  width: 260px;
+  position: absolute;
+  top: 100%;
+  margin-top: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+}
+
+/* SEARCH BAR INSIDE DROPDOWN */
+.dropdown-search {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-bottom: 1px solid var(--card-border);
+  outline: none;
+  background: var(--card-bg);
+  color: var(--text);
   font-size: 14px;
 }
 
-/* ----------------------------------------------------------
-   RANGE BUTTONS
------------------------------------------------------------ */
-.range-buttons {
+/* ROW LAYOUT — IMAGE LEFT, SYMBOL ABOVE NAME */
+.dropdown-row {
+  padding: 12px 14px;
   display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-bottom: 25px;
-}
-
-.range-buttons button {
-  padding: 6px 14px;
-  border-radius: 6px;
-  background: var(--panel);
-  border: 1px solid #bbb;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
-  color: var(--text);
+  transition: background 0.15s;
 }
 
-.range-buttons button.active {
-  background: #3b82f6;
-  color: #fff;
-  border-color: #3b82f6;
+.dropdown-row:hover {
+  background: rgba(59, 130, 246, 0.15); /* Hover B2 */
 }
 
-.range-buttons button:disabled {
-  opacity: 0.4;
+/* Logo inside dropdown */
+.dropdown-flag {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Vertical stack text */
+.dropdown-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-symbol {
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 16px;
+}
+
+.dropdown-name {
+  font-size: 13px;
+  opacity: 0.75;
+  margin-top: 2px;
+}
+
+/* Selected Coin */
+.dropdown-selected {
+  background: rgba(59,130,246,0.22); /* A1 slightly darker */
+}
+
+/* Disabled (same coin) */
+.dropdown-disabled {
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
-/* ----------------------------------------------------------
-   CHART CONTAINER
------------------------------------------------------------ */
-.chart-container {
-  width: 100%;
-  height: 360px; /* matches your chart height */
+.dropdown-disabled:hover {
+  background: transparent !important;
 }
 
-/* ----------------------------------------------------------
-   THEME TOGGLE POSITION
------------------------------------------------------------ */
-.theme-toggle-wrapper {
-  position: fixed;
-  top: 18px;
-  right: 18px;
-  z-index: 999;
+/* ------------------------------------------------------ */
+/* SCROLLBAR (CLEAN) */
+/* ------------------------------------------------------ */
+.dropdown-panel::-webkit-scrollbar {
+  width: 7px;
+}
+
+.dropdown-panel::-webkit-scrollbar-thumb {
+  background: #bcbcbc;
+  border-radius: 6px;
+}
+
+html.dark .dropdown-panel::-webkit-scrollbar-thumb {
+  background: #555;
+}
+
+/* ------------------------------------------------------ */
+/* SWAP BUTTON */
+/* ------------------------------------------------------ */
+
+.swap-circle {
+  width: 62px;
+  height: 62px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: 0.25s ease;
+}
+
+.swap-circle:hover {
+  background: var(--accent);
+}
+
+.swap-icon {
+  width: 30px;
+  height: 30px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  transition: transform 0.3s;
+  background-image: url("data:image/svg+xml,%3Csvg width='24' height='24' stroke='currentColor' stroke-width='2' fill='none' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 7h14l-4-4m4 4l-4 4'/%3E%3Cpath d='M17 17H3l4 4m-4-4l4-4'/%3E%3C/svg%3E");
+}
+
+.swap-circle:hover .swap-icon {
+  transform: rotate(180deg);
+}
+
+/* ------------------------------------------------------ */
+/* BUTTONS (CHART RANGE) */
+/* ------------------------------------------------------ */
+
+button {
+  font-family: inherit;
+  transition: 0.15s;
+}
+
+/* ------------------------------------------------------ */
+/* INPUT (AMOUNT) */
+/* ------------------------------------------------------ */
+
+input {
+  color: var(--text);
 }
