@@ -46,7 +46,13 @@ const fiatList: Coin[] = [
   { id: "TRY", symbol: "TRY", name: "Turkish Lira", type: "fiat" },
 ];
 
-const USD = { id: "USD", symbol: "USD", name: "US Dollar", type: "fiat" };
+const USD: Coin = {
+  id: "USD",
+  symbol: "USD",
+  name: "US Dollar",
+  type: "fiat" as const,
+};
+
 
 /* ===========================================================
       CACHES (NEW)
@@ -97,57 +103,47 @@ export default function Page() {
       LOAD COINS + INSERT FIAT
 ------------------------------ */
 useEffect(() => {
-  async function loadCoins() {
-    const res = await fetch(
+  async function load() {
+
+    const r = await fetch(
       "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
     );
-    const data = await res.json();
+    const d = await r.json();
 
-    // FIXED: ensure crypto objects strictly match interface Coin
-    const cryptos: Coin[] = data.map((c: any) => ({
+    // FIXED: ensure cryptos strictly use literal type "crypto"
+    const cryptos: Coin[] = d.map((c: any) => ({
       id: c.id,
       symbol: c.symbol.toUpperCase(),
       name: c.name,
       image: c.image,
-      type: "crypto",   // <— MUST BE EXACT STRING LITERAL
+      type: "crypto" as const,
     }));
 
-    // Sort fiat list
-    const sortedFiats: Coin[] = fiatList.map(f => ({
-      ...f,
-      type: "fiat",     // <— ENSURE type literal
-    }));
+    // FIXED: ensure fiats strictly use literal type "fiat"
+    const sortedFiats = [...fiatList].sort((a, b) =>
+      a.symbol.localeCompare(b.symbol)
+    );
 
-    // Merge crypto + fiat in alphabetical order
-    const mixed = [...cryptos];
+    const mixed: Coin[] = [...cryptos];
     for (const f of sortedFiats) {
-      const idx = mixed.findIndex(x =>
-        f.symbol.localeCompare(x.symbol) < 0
-      );
+      const idx = mixed.findIndex((x) => f.symbol.localeCompare(x.symbol) < 0);
       if (idx === -1) mixed.push(f);
       else mixed.splice(idx, 0, f);
     }
 
-    const finalList: Coin[] = [
-      {
-        id: "USD",
-        symbol: "USD",
-        name: "US Dollar",
-        type: "fiat",   // <— IMPORTANT
-      },
-      ...mixed,
-    ];
-
+    const finalList: Coin[] = [USD, ...mixed];
     setAllCoins(finalList);
 
-    // Default: Bitcoin → USD
-    const btc = finalList.find(c => c.id === "bitcoin");
-    setFromCoin(btc ?? finalList[1]);
-    setToCoin(finalList[0]); // USD
+    // FIXED: ensure strict Coin type
+    const btc = finalList.find((c) => c.id === "bitcoin") || finalList[1];
+    setFromCoin(btc);
+    setToCoin(USD);
   }
 
-  loadCoins();
+  load();
 }, []);
+
+
 
 
   /* ===========================================================
