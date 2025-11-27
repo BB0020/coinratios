@@ -182,7 +182,7 @@ export default function Page() {
   );
 
   /* END CHUNK 1 */
-  /* ------------------------------------------------------
+    /* ------------------------------------------------------
      PRICE UTILITIES (USD BASELINE)
   ------------------------------------------------------ */
 
@@ -210,6 +210,7 @@ export default function Page() {
       `https://api.frankfurter.app/latest?from=USD&to=${symbol}`
     );
     const d = await r.json();
+
     const rate = d.rates?.[symbol] ?? 0;
     const inverted = 1 / rate;
 
@@ -241,7 +242,7 @@ export default function Page() {
     setResult(finalRate * amt);
   }, [fromCoin, toCoin, amount, cryptoToUSD_now, fiatToUSD_now]);
 
-  /* Debounce realtime computation (avoid API spam while typing) */
+  /* Debounce realtime computation (avoid API spam) */
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
     const t = setTimeout(computeResult, 250);
@@ -264,39 +265,91 @@ export default function Page() {
   }
 
   /* ------------------------------------------------------
-     CRYPTO → USD HISTORY (from CoinGecko)
+     CRYPTO → USD HISTORY (1Y FIX USING RANGE API)
   ------------------------------------------------------ */
   const cryptoToUSD_history = useCallback(async (id: string, days: number) => {
     const key = `crypto-${id}-${days}`;
     if (historyCache.current[key]) return historyCache.current[key];
 
-    const res = await fetch(
-      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
-    );
-    const data = await res.json();
+    /* Simple case: ≤ 90 days → safe to use CoinGecko shortcuts */
+    if (days <= 90) {
+      const res = await fetch(
+        `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+      );
+      const data = await res.json();
 
-    const arr: PricePoint[] =
-      data.prices?.map((p: any) => ({
-        time: Math.floor(p[0] / 1000),
-        value: p[1],
-      })) ?? [];
+      const arr: PricePoint[] =
+        data.prices?.map((p: any) => ({
+          time: Math.floor(p[0] / 1000),
+          value: p[1],
+        })) ?? [];
 
-    historyCache.current[key] = arr;
-    return arr;
+      historyCache.current[key] = arr;
+      return arr;
+    }
+
+    /* ------------------------------------------------------
+       FIX FOR LONG RANGES (1Y, etc.)
+       Use RANGE endpoint in ~85-day chunks
+    ------------------------------------------------------ */
+
+    const now = Math.floor(Date.now() / 1000);
+    const seconds85d = 85 * 86400;
+    const earliest = now - days * 86400;
+
+    let end = now;
+    let start = now - seconds85d;
+
+    const chunks: PricePoint[][] = [];
+
+    while (start > earliest) {
+      const safeFrom = Math.max(start, earliest);
+
+      const url =
+        `https://api.coingecko.com/api/v3/coins/${id}/market_chart/range` +
+        `?vs_currency=usd&from=${safeFrom}&to=${end}`;
+
+      const r = await fetch(url);
+      const d = await r.json();
+
+      if (d.prices) {
+        const points = d.prices.map((p: any) => ({
+          time: Math.floor(p[0] / 1000),
+          value: p[1],
+        }));
+        chunks.push(points);
+      }
+
+      end = start;
+      start = start - seconds85d;
+    }
+
+    // Merge all chunks
+    const merged = chunks.flat();
+
+    // Deduplicate by timestamp
+    const dedup = new Map<number, number>();
+    for (const p of merged) dedup.set(p.time, p.value);
+
+    const final = Array.from(dedup.entries())
+      .map(([time, value]) => ({ time, value }))
+      .sort((a, b) => a.time - b.time);
+
+    historyCache.current[key] = final;
+    return final;
   }, []);
 
   /* ------------------------------------------------------
-     FIAT → USD HISTORY (optimized to 1 API call)
+     FIAT → USD HISTORY (1 API call using RANGE)
   ------------------------------------------------------ */
   const fiatToUSD_history = useCallback(async (symbol: string, days: number) => {
     const key = `fiat-${symbol}-${days}`;
     if (historyCache.current[key]) return historyCache.current[key];
 
-    // USD: flat line
+    // USD flat line
     if (symbol === "USD") {
       const arr: PricePoint[] = [];
       const now = new Date();
-
       for (let i = 0; i < days; i++) {
         const t = new Date(now.getTime() - i * 86400000);
         arr.push({
@@ -304,27 +357,28 @@ export default function Page() {
           value: 1,
         });
       }
-
       const sorted = arr.sort((a, b) => a.time - b.time);
       historyCache.current[key] = sorted;
       return sorted;
     }
 
-    // Frankfurter RANGE API: YYYY-MM-DD..YYYY-MM-DD
+    // Use RANGE endpoint
     const now = new Date();
     const start = new Date(now.getTime() - days * 86400000);
+
     const startISO = start.toISOString().slice(0, 10);
     const endISO = now.toISOString().slice(0, 10);
 
-    const url = `https://api.frankfurter.app/${startISO}..${endISO}?from=USD&to=${symbol}`;
-    const r = await fetch(url);
+    const r = await fetch(
+      `https://api.frankfurter.app/${startISO}..${endISO}?from=USD&to=${symbol}`
+    );
     const data = await r.json();
 
     const out: PricePoint[] = Object.keys(data.rates).map((day) => {
       const usdToFiat = data.rates[day][symbol];
       return {
         time: Math.floor(new Date(day).getTime() / 1000),
-        value: 1 / usdToFiat, // invert USD→FIAT to FIAT→USD
+        value: 1 / usdToFiat,
       };
     });
 
@@ -334,7 +388,7 @@ export default function Page() {
   }, []);
 
   /* ------------------------------------------------------
-     MERGE HISTORY (Nearest timestamp matching)
+     MERGE HISTORY (nearest timestamp)
   ------------------------------------------------------ */
   function mergeNearest(
     base: PricePoint[],
@@ -363,14 +417,13 @@ export default function Page() {
   }
 
   /* ------------------------------------------------------
-     UNIVERSAL HISTORY BUILDER WITH CACHING
+     UNIVERSAL HISTORY BUILDER
   ------------------------------------------------------ */
   const computeHistory = useCallback(async () => {
     if (!fromCoin || !toCoin) return lastValidData.current;
 
     const days = rangeToDays(range);
 
-    /* Parallel fetch */
     const [fromHist, toHist] = await Promise.all([
       fromCoin.type === "crypto"
         ? cryptoToUSD_history(fromCoin.id, days)
@@ -388,7 +441,8 @@ export default function Page() {
     return merged;
   }, [fromCoin, toCoin, range, cryptoToUSD_history, fiatToUSD_history]);
 
-  /* END CHUNK 2 */
+  /* END_PATCHED_CHUNK_2 */
+
   /* ------------------------------------------------------
      CHART INITIALIZATION (Create once)
   ------------------------------------------------------ */
