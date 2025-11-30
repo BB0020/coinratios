@@ -1,23 +1,25 @@
-"use client";
-
-import { useEffect } from "react";
 import "./globals.css";
+import ThemeToggle from "./ThemeToggle";
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export const metadata = {
+  title: "Coin Ratios",
+  description: "Crypto & fiat conversion ratios",
+};
 
-  // 1) Ensure theme is applied BEFORE hydration to avoid light/dark flash
-  useEffect(() => {
-    let saved = localStorage.getItem("theme");
-    if (!saved) {
-      saved = "light";
-      localStorage.setItem("theme", "light");
-    }
-    document.documentElement.classList.add(saved);
-  }, []);
-
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <html>
+    <html lang="en">
       <body>
+        {/* THEME TOGGLE (fixed top-right corner) */}
+        <div className="theme-toggle-wrapper">
+          <ThemeToggle />
+        </div>
+
+        {/* PAGE CONTENT */}
         {children}
       </body>
     </html>

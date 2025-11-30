@@ -13,15 +13,23 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+
     "plugins": [
       {
         "name": "next"
       }
     ],
+
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+
+      // ⭐ FORCE TYPECRIPT TO USE LOCAL V4 TYPINGS ⭐
+      "lightweight-charts": [
+        "./node_modules/lightweight-charts/dist/typings.d.ts"
+      ]
     }
   },
+
   "include": [
     "next-env.d.ts",
     "**/*.ts",
@@ -30,5 +38,6 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
+
   "exclude": ["node_modules"]
 }
