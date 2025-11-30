@@ -3,9 +3,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { createChart } from "lightweight-charts";
 
-/* ------------------------------------------------------
-   TYPES
------------------------------------------------------- */
 interface Coin {
   id: string;
   symbol: string;
@@ -19,20 +16,19 @@ interface PricePoint {
   value: number;
 }
 
-/* ------------------------------------------------------
-   CONSTANTS
------------------------------------------------------- */
-const RANGES = ["24H", "7D", "1M", "3M", "6M", "1Y"];
+const RANGES = ["24H", "7D", "1M", "3M", "6M", "1Y", "ALL"];
+
 const RANGE_DAYS: Record<string, number> = {
   "24H": 1,
   "7D": 7,
   "1M": 30,
   "3M": 90,
   "6M": 180,
-  "1Y": 365
+  "1Y": 365,
+  "ALL": 0,      // 0 means ALL (full history)
 };
 
-/* Debounce helper */
+// Simple debounce
 function debounce(fn: Function, delay: number) {
   let timer: any;
   return (...args: any[]) => {
@@ -40,12 +36,7 @@ function debounce(fn: Function, delay: number) {
     timer = setTimeout(() => fn(...args), delay);
   };
 }
-
 export default function Page() {
-
-  /* ------------------------------------------------------
-     STATE
-  ------------------------------------------------------ */
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
@@ -53,21 +44,23 @@ export default function Page() {
   const [result, setResult] = useState<number | null>(null);
   const [range, setRange] = useState("24H");
 
-  const priceCache = useRef<Record<string, number>>({});
-  const historyCache = useRef<Record<string, PricePoint[]>>({});
-  const lastValidData = useRef<PricePoint[]>([]);
-
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const fromPanelRef = useRef<HTMLDivElement | null>(null);
-  const toPanelRef = useRef<HTMLDivElement | null>(null);
+  const priceCache = useRef<Record<string, number>>({});
+  const historyCache = useRef<Record<string, PricePoint[]>>({});
+  const lastValidData = useRef<PricePoint[]>([]);
+
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
+
+  const fromPanelRef = useRef<HTMLDivElement | null>(null);
+  const toPanelRef = useRef<HTMLDivElement | null>(null);
+
   /* ------------------------------------------------------
-     LOAD COINS + DEFAULT BTC→USD + INITIAL PRELOAD
+     LOAD COINS + DEFAULT BTC→USD
   ------------------------------------------------------ */
   useEffect(() => {
     async function init() {
@@ -76,18 +69,17 @@ export default function Page() {
 
       const cryptos: Coin[] = data.cryptos;
 
-      // Your full fiat list stays the same visually:
+      // Full fiat list (same UI)
       const fiats: Coin[] = [
         { id: "usd", symbol: "USD", name: "US Dollar", image: "https://flagcdn.com/us.svg", type: "usd" },
         { id: "eur", symbol: "EUR", name: "Euro", image: "https://flagcdn.com/eu.svg", type: "fiat" },
         { id: "cad", symbol: "CAD", name: "Canadian Dollar", image: "https://flagcdn.com/ca.svg", type: "fiat" },
         { id: "gbp", symbol: "GBP", name: "British Pound", image: "https://flagcdn.com/gb.svg", type: "fiat" },
         { id: "jpy", symbol: "JPY", name: "Japanese Yen", image: "https://flagcdn.com/jp.svg", type: "fiat" },
-        // ...add all your others exactly as before
       ];
 
-      // Crypto first, then alphabetical fiats (same as original)
       const finalList = [...cryptos];
+
       for (const f of fiats) {
         const idx = finalList.findIndex(c => f.symbol.localeCompare(c.symbol) < 0);
         if (idx === -1) finalList.push(f);
@@ -102,16 +94,14 @@ export default function Page() {
       setFromCoin(btc || finalList[0]);
       setToCoin(usd!);
 
-      // Initial auto-preload BTC→USD
-      if (btc && usd) {
-        preloadPair(btc, usd);
-      }
+      // Preload main ranges for BTC → USD
+      if (btc && usd) preloadPair(btc, usd);
     }
 
     init();
   }, []);
   /* ------------------------------------------------------
-     PRICE FETCH (SERVER API) + LOCAL CACHE
+     PRICE FETCH + LOCAL CACHE
   ------------------------------------------------------ */
   const fetchPriceUSD = useCallback(async (coin: Coin) => {
     const key = `price-${coin.id}`;
@@ -143,7 +133,7 @@ export default function Page() {
   }, []);
 
   /* ------------------------------------------------------
-     HISTORY FETCH (SERVER API) + LOCAL CACHE
+     HISTORY FETCH + LOCAL CACHE
   ------------------------------------------------------ */
   const fetchHistory = useCallback(async (coin: Coin, days: number) => {
     const key = `hist-${coin.id}-${days}`;
@@ -172,6 +162,29 @@ export default function Page() {
 
     return arr;
   }, []);
+
+  /* ------------------------------------------------------
+     MERGE USING NEAREST TIMESTAMPS
+  ------------------------------------------------------ */
+  const mergeNearest = useCallback((a: PricePoint[], b: PricePoint[]) => {
+    const out: PricePoint[] = [];
+    let j = 0;
+
+    for (let i = 0; i < a.length; i++) {
+      while (
+        j < b.length - 1 &&
+        Math.abs(b[j + 1].time - a[i].time) < Math.abs(b[j].time - a[i].time)
+      ) {
+        j++;
+      }
+      out.push({
+        time: a[i].time,
+        value: a[i].value / b[j].value
+      });
+    }
+
+    return out;
+  }, []);
   /* ------------------------------------------------------
      REALTIME CONVERSION
   ------------------------------------------------------ */
@@ -199,32 +212,11 @@ export default function Page() {
   }, [amount, fromCoin, toCoin, computeResult]);
 
   /* ------------------------------------------------------
-     MERGE HISTORIES
-  ------------------------------------------------------ */
-  const mergeNearest = useCallback((a: PricePoint[], b: PricePoint[]) => {
-    const out: PricePoint[] = [];
-    let j = 0;
-
-    for (let i = 0; i < a.length; i++) {
-      while (
-        j < b.length - 1 &&
-        Math.abs(b[j + 1].time - a[i].time) < Math.abs(b[j].time - a[i].time)
-      ) j++;
-
-      out.push({
-        time: a[i].time,
-        value: a[i].value / b[j].value
-      });
-    }
-
-    return out;
-  }, []);
-
-  /* ------------------------------------------------------
-     AUTO-PRELOAD LOGIC
+     AUTO PRELOAD (24H→1Y only)
   ------------------------------------------------------ */
   const doPreload = async (from: Coin, to: Coin) => {
     for (const r of RANGES) {
+      if (r === "ALL") continue; // load ALL only on click
       const days = RANGE_DAYS[r];
       const [a, b] = await Promise.all([
         fetchHistory(from, days),
@@ -243,10 +235,10 @@ export default function Page() {
     preloadPairDebounced(from, to);
   }, [preloadPairDebounced]);
 
-  /* Trigger on BOTH selected */
   useEffect(() => {
     if (fromCoin && toCoin) preloadPair(fromCoin, toCoin);
   }, [fromCoin, toCoin, preloadPair]);
+
   /* ------------------------------------------------------
      INIT CHART
   ------------------------------------------------------ */
@@ -254,7 +246,6 @@ export default function Page() {
     if (!chartContainerRef.current || chartRef.current) return;
 
     const container = chartContainerRef.current;
-
     const isDark = document.documentElement.classList.contains("dark");
 
     const chart = createChart(container, {
@@ -285,7 +276,7 @@ export default function Page() {
   }, []);
 
   /* ------------------------------------------------------
-     THEME CHANGE (affects chart only)
+     THEME CHANGE
   ------------------------------------------------------ */
   useEffect(() => {
     const handler = () => {
@@ -296,7 +287,7 @@ export default function Page() {
       chartRef.current.applyOptions({
         layout: {
           background: { color: isDark ? "#111" : "#fff" },
-          textColor: isDark ? "#eee" : "#1a111a"
+          textColor: isDark ? "#eee" : "#1a1a1a"
         },
         grid: {
           vertLines: { color: isDark ? "#2a2a2a" : "#e3e3e3" },
@@ -306,16 +297,15 @@ export default function Page() {
 
       seriesRef.current.applyOptions({
         lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)"
+        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
       });
     };
 
     window.addEventListener("theme-change", handler);
     return () => window.removeEventListener("theme-change", handler);
   }, []);
-
   /* ------------------------------------------------------
-     LOAD CHART RANGE
+     LOAD CHART RANGE (INCLUDING ALL)
   ------------------------------------------------------ */
   const updateChart = useCallback(async () => {
     if (!fromCoin || !toCoin || !seriesRef.current) return;
@@ -325,14 +315,17 @@ export default function Page() {
 
     let data: PricePoint[] | null = null;
 
+    // Try localStorage
     const ls = localStorage.getItem(key);
     if (ls) data = JSON.parse(ls);
 
+    // Load fresh data (ALL loads only here)
     if (!data) {
       const [a, b] = await Promise.all([
         fetchHistory(fromCoin, days),
-        fetchHistory(toCoin, days)
+        fetchHistory(toCoin, days),
       ]);
+
       data = mergeNearest(a, b);
       localStorage.setItem(key, JSON.stringify(data));
     }
@@ -346,14 +339,14 @@ export default function Page() {
     updateChart();
   }, [range, fromCoin, toCoin, updateChart]);
   /* ------------------------------------------------------
-     FILTERED COINS
+     FILTER & RENDER DROPDOWNS (UI UNCHANGED)
   ------------------------------------------------------ */
   const filteredCoins = useCallback(
     (input: string) => {
       if (!input) return allCoins;
       const s = input.toLowerCase();
       return allCoins.filter(
-        (c) =>
+        c =>
           c.symbol.toLowerCase().includes(s) ||
           c.name.toLowerCase().includes(s)
       );
@@ -361,9 +354,6 @@ export default function Page() {
     [allCoins]
   );
 
-  /* ------------------------------------------------------
-     RENDER DROPDOWN ROW
-  ------------------------------------------------------ */
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
       const disabled =
@@ -384,8 +374,10 @@ export default function Page() {
           className={cls}
           onClick={() => {
             if (disabled) return;
+
             if (type === "from") setFromCoin(coin);
             else setToCoin(coin);
+
             setOpenDropdown(null);
             setFromSearch("");
             setToSearch("");
@@ -402,9 +394,6 @@ export default function Page() {
     [fromCoin, toCoin]
   );
 
-  /* ------------------------------------------------------
-     DROPDOWN PANEL
-  ------------------------------------------------------ */
   const renderDropdown = useCallback(
     (type: "from" | "to") => {
       const search = type === "from" ? fromSearch : toSearch;
@@ -439,6 +428,7 @@ export default function Page() {
         setOpenDropdown(null);
         setFromSearch("");
       }
+
       if (
         openDropdown === "to" &&
         toPanelRef.current &&
@@ -453,11 +443,11 @@ export default function Page() {
     return () => document.removeEventListener("mousedown", handler);
   }, [openDropdown]);
   /* ------------------------------------------------------
-     RENDER PAGE UI (IDENTICAL LOOK)
+     FINAL RENDER (UI PRESERVED 100%)
   ------------------------------------------------------ */
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "24px" }}>
-      
+
       {/* AMOUNT / FROM / TO */}
       <div
         style={{
@@ -509,7 +499,6 @@ export default function Page() {
               <div className="selector-name">{fromCoin?.name}</div>
             </div>
           </div>
-
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
@@ -517,9 +506,9 @@ export default function Page() {
         <div
           onClick={() => {
             if (fromCoin && toCoin) {
-              const temp = fromCoin;
+              const tmp = fromCoin;
               setFromCoin(toCoin);
-              setToCoin(temp);
+              setToCoin(tmp);
             }
           }}
           style={{ marginTop: "38px" }}
@@ -544,21 +533,27 @@ export default function Page() {
               <div className="selector-name">{toCoin?.name}</div>
             </div>
           </div>
-
           {openDropdown === "to" && renderDropdown("to")}
         </div>
       </div>
 
-      {/* RESULT */}
-      {result && fromCoin && toCoin && (
+      {/* RESULT (IMPROVED) */}
+      {fromCoin && toCoin && (
         <div style={{ textAlign: "center", marginTop: "40px" }}>
           <div style={{ fontSize: "22px", opacity: 0.65 }}>
             1 {fromCoin.symbol} → {toCoin.symbol}
           </div>
-          <div style={{ fontSize: "60px", fontWeight: 700 }}>
-            {result.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
-            {toCoin.symbol}
-          </div>
+
+          {result !== null ? (
+            <div style={{ fontSize: "60px", fontWeight: 700 }}>
+              {result.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+              {toCoin.symbol}
+            </div>
+          ) : (
+            <div style={{ fontSize: "20px", color: "red", marginTop: "14px" }}>
+              Enter amount
+            </div>
+          )}
         </div>
       )}
 
