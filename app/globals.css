@@ -1,166 +1,140 @@
-/* ============================================================
-   GLOBAL RESET
-============================================================ */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* ------------------------------------------------------ */
+/* THEME VARIABLES */
+/* ------------------------------------------------------ */
 
-html, body {
-  width: 100%;
-  min-height: 100%;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-}
-
-/* ============================================================
-   LIGHT / DARK THEME VARIABLES
-============================================================ */
 :root {
-  --bg: #ffffff;
+  --bg: #f7f8fa;
   --text: #1a1a1a;
-
-  --card-bg: #f7f7f7;
-  --card-border: #dcdcdc;
-  --card-hover: #e8e8e8;
-
+  --card-bg: #ffffff;
+  --card-border: #dedede;
   --accent: #3b82f6;
 }
 
 html.dark {
   --bg: #111111;
-  --text: #ffffff;
-
+  --text: #f1f1f1;
   --card-bg: #1a1a1a;
-  --card-border: #333333;
-  --card-hover: #222222;
-
+  --card-border: #333;
   --accent: #4ea1f7;
 }
 
-/* ============================================================
-   THEME TOGGLE (fixed top-right)
-============================================================ */
-.theme-toggle-wrapper {
-  position: fixed;
-  top: 18px;
-  right: 22px;
-  z-index: 9999;
+/* ------------------------------------------------------ */
+/* BASE */
+/* ------------------------------------------------------ */
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
-.theme-toggle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  cursor: pointer;
-  transition: 0.2s;
+h3 {
+  margin: 0 0 6px 2px;
+  font-size: 16px;
 }
 
-.theme-toggle:hover {
-  background: var(--card-hover);
+/* Motion reduction */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
-/* ============================================================
-   SELECTOR BOXES (FROM / TO)
-============================================================ */
+/* ------------------------------------------------------ */
+/* SELECTOR BOX */
+/* ------------------------------------------------------ */
+
 .selector-box {
   width: 260px;
   padding: 14px 16px;
   border-radius: 14px;
-  background: var(--card-bg);
   border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 12px;
-  cursor: pointer;
-  transition: background 0.2s ease;
+  transition: 0.15s;
+  position: relative;
+  contain: layout paint;
 }
 
 .selector-box:hover {
-  background: var(--card-hover);
+  border-color: var(--accent);
 }
 
 .selector-img {
-  width: 32px;
-  height: 32px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
+  object-fit: cover;
 }
 
 .selector-symbol {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
+  line-height: 20px;
 }
 
 .selector-name {
-  font-size: 13px;
-  opacity: 0.65;
+  font-size: 14px;
+  opacity: 0.7;
+  margin-top: 2px;
 }
 
-/* ============================================================
-   DROP-DOWN PANELS
-============================================================ */
+/* ------------------------------------------------------ */
+/* DROPDOWN */
+/* ------------------------------------------------------ */
+
 .dropdown-panel {
-  position: absolute;
-  top: 82px;
-  left: 0;
   width: 260px;
-  max-height: 320px;
-  overflow-y: auto;
+  position: absolute;
+  top: 100%;
+  margin-top: 6px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-  z-index: 999;
-  padding-bottom: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  contain: layout paint;
 }
 
 .dropdown-search {
   width: 100%;
   padding: 12px;
   border: none;
-  background: var(--card-hover);
+  border-bottom: 1px solid var(--card-border);
+  outline: none;
+  background: var(--card-bg);
   color: var(--text);
   font-size: 14px;
-  outline: none;
-  margin-bottom: 4px;
-  border-radius: 14px 14px 0 0;
 }
 
 .dropdown-row {
+  padding: 12px 14px;
   display: flex;
   align-items: center;
-  padding: 10px 12px;
   gap: 12px;
   cursor: pointer;
+  transition: background 0.15s;
 }
 
 .dropdown-row:hover {
-  background: var(--card-hover);
-}
-
-.dropdown-selected {
-  background: var(--accent) !important;
-  color: #fff;
-}
-
-.dropdown-disabled {
-  opacity: 0.35;
-  pointer-events: none;
+  background: rgba(59, 130, 246, 0.15);
 }
 
 .dropdown-flag {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
+  object-fit: cover;
 }
 
 .dropdown-text {
@@ -169,88 +143,69 @@ html.dark {
 }
 
 .dropdown-symbol {
-  font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 16px;
 }
 
 .dropdown-name {
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 13px;
+  opacity: 0.75;
+  margin-top: 2px;
 }
 
-/* ============================================================
-   AMOUNT INPUT
-============================================================ */
-.amount-input {
-  color: var(--text);
+.dropdown-selected {
+  background: rgba(59,130,246,0.22);
 }
 
-/* ============================================================
-   RANGE BUTTONS
-============================================================ */
-.range-btn {
-  background: var(--card-bg);
-  color: var(--text);
+.dropdown-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
-.range-btn-active {
-  background: var(--accent);
-  color: #fff;
+/* Scrollbar */
+.dropdown-panel::-webkit-scrollbar {
+  width: 7px;
+}
+.dropdown-panel::-webkit-scrollbar-thumb {
+  background: #bcbcbc;
+  border-radius: 6px;
+}
+html.dark .dropdown-panel::-webkit-scrollbar-thumb {
+  background: #555;
 }
 
-/* ============================================================
-   SWAP ARROW (pure CSS)
-============================================================ */
+/* ------------------------------------------------------ */
+/* SWAP BUTTON */
+/* ------------------------------------------------------ */
+
 .swap-circle {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
+  width: 62px;
+  height: 62px;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
+  border-radius: 50%;
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   cursor: pointer;
-  transition: 0.2s;
+  transition: 0.25s ease;
+  contain: layout paint;
 }
 
 .swap-circle:hover {
-  background: var(--card-hover);
+  background: var(--accent);
 }
 
-/* The arrow itself */
 .swap-icon {
-  width: 22px;
-  height: 22px;
-  border: solid var(--text);
-  border-width: 0 3px 3px 0;
-  display: inline-block;
-  transform: rotate(45deg);
-  transition: transform 0.2s ease;
+  width: 30px;
+  height: 30px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  transition: transform 0.3s;
+  background-image: url("data:image/svg+xml,%3Csvg width='24' height='24' stroke='currentColor' stroke-width='2' fill='none' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M7 7h14l-4-4m4 4l-4 4'/%3E%3Cpath d='M17 17H3l4 4m-4-4l4-4'/%3E%3C/svg%3E");
 }
 
 .swap-circle:hover .swap-icon {
-  transform: rotate(225deg);
-}
-
-/* ============================================================
-   SCROLLBAR (clean modern)
-============================================================ */
-.dropdown-panel::-webkit-scrollbar {
-  width: 8px;
-}
-
-.dropdown-panel::-webkit-scrollbar-thumb {
-  background: var(--card-border);
-  border-radius: 4px;
-}
-
-/* ============================================================
-   UTILITIES
-============================================================ */
-h3 {
-  font-size: 14px;
-  font-weight: 600;
-  opacity: 0.6;
-  margin-bottom: 8px;
+  transform: rotate(180deg);
 }
