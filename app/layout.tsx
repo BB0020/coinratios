@@ -1,6 +1,6 @@
 import "./globals.css";
-import { useEffect } from "react";
 import ThemeToggle from "./ThemeToggle";
+import ThemeInit from "./ThemeInit";
 
 export const metadata = {
   title: "CoinRatios",
@@ -11,10 +11,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html suppressHydrationWarning>
       <body>
-        {/* CLIENT THEME LOADER */}
-        <ThemeInitializer />
+        {/* Inject saved theme early */}
+        <ThemeInit />
 
-        {/* Theme Toggle button in header */}
+        {/* Theme toggle in header */}
         <div style={{ textAlign: "right", padding: "16px 22px" }}>
           <ThemeToggle />
         </div>
@@ -23,21 +23,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </body>
     </html>
   );
-}
-
-/* ----------------------------------------------------------
-   CLIENT COMPONENT INSIDE SAME FILE
-   (keeps layout a server component)
------------------------------------------------------------*/
-function ThemeInitializer() {
-  // Mark this as a client component
-  "use client";
-
-  useEffect(() => {
-    // Load saved theme
-    const saved = localStorage.getItem("theme") || "light";
-    document.documentElement.classList.add(saved);
-  }, []);
-
-  return null;
 }
