@@ -9,7 +9,7 @@ export default function ThemeToggle() {
     html.classList.add(next);
     localStorage.setItem("theme", next);
 
-    // Notify chart listeners
+    // Let the chart know
     window.dispatchEvent(new Event("theme-change"));
   }
 

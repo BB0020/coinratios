@@ -18,17 +18,14 @@ html.dark {
   --accent: #4ea1f7;
 }
 
-/* ------------------------------------------------------ */
 /* BASE */
-/* ------------------------------------------------------ */
-
 body {
   margin: 0;
   padding: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Oxygen, Ubuntu, Cantarell, "Open Sans", sans-serif;
 }
 
 h3 {
@@ -36,18 +33,18 @@ h3 {
   font-size: 16px;
 }
 
-/* Motion reduction */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition: none !important;
-    animation: none !important;
-  }
+/* THEME TOGGLE BUTTON */
+.theme-toggle-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
 }
 
-/* ------------------------------------------------------ */
-/* SELECTOR BOX */
-/* ------------------------------------------------------ */
-
+/* SELECTOR BOXES */
 .selector-box {
   width: 260px;
   padding: 14px 16px;
@@ -60,7 +57,6 @@ h3 {
   gap: 12px;
   transition: 0.15s;
   position: relative;
-  contain: layout paint;
 }
 
 .selector-box:hover {
@@ -77,19 +73,14 @@ h3 {
 .selector-symbol {
   font-size: 20px;
   font-weight: 700;
-  line-height: 20px;
 }
 
 .selector-name {
   font-size: 14px;
   opacity: 0.7;
-  margin-top: 2px;
 }
 
-/* ------------------------------------------------------ */
-/* DROPDOWN */
-/* ------------------------------------------------------ */
-
+/* DROPDOWN PANEL */
 .dropdown-panel {
   width: 260px;
   position: absolute;
@@ -100,10 +91,8 @@ h3 {
   border-radius: 14px;
   max-height: 360px;
   overflow-y: auto;
-  overflow-x: hidden;
   z-index: 9999;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-  contain: layout paint;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
 }
 
 .dropdown-search {
@@ -111,7 +100,6 @@ h3 {
   padding: 12px;
   border: none;
   border-bottom: 1px solid var(--card-border);
-  outline: none;
   background: var(--card-bg);
   color: var(--text);
   font-size: 14px;
@@ -130,6 +118,15 @@ h3 {
   background: rgba(59, 130, 246, 0.15);
 }
 
+.dropdown-selected {
+  background: rgba(59, 130, 246, 0.22);
+}
+
+.dropdown-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .dropdown-flag {
   width: 36px;
   height: 36px;
@@ -145,40 +142,14 @@ h3 {
 .dropdown-symbol {
   font-weight: 700;
   font-size: 16px;
-  line-height: 16px;
 }
 
 .dropdown-name {
   font-size: 13px;
   opacity: 0.75;
-  margin-top: 2px;
 }
 
-.dropdown-selected {
-  background: rgba(59,130,246,0.22);
-}
-
-.dropdown-disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-/* Scrollbar */
-.dropdown-panel::-webkit-scrollbar {
-  width: 7px;
-}
-.dropdown-panel::-webkit-scrollbar-thumb {
-  background: #bcbcbc;
-  border-radius: 6px;
-}
-html.dark .dropdown-panel::-webkit-scrollbar-thumb {
-  background: #555;
-}
-
-/* ------------------------------------------------------ */
 /* SWAP BUTTON */
-/* ------------------------------------------------------ */
-
 .swap-circle {
   width: 62px;
   height: 62px;
@@ -190,7 +161,6 @@ html.dark .dropdown-panel::-webkit-scrollbar-thumb {
   align-items: center;
   cursor: pointer;
   transition: 0.25s ease;
-  contain: layout paint;
 }
 
 .swap-circle:hover {
