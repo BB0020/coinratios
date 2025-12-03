@@ -17,16 +17,8 @@ interface Coin {
 
 interface PricePoint {
   time: number; // UNIX seconds
-  value: number; // price in USD
+  value: number; // USD value
 }
-
-/* ------------------------------------------------------
-   FIAT LIST
------------------------------------------------------- */
-const fiatSymbols = [
-  "USD","AUD","BRL","CAD","CHF","CNY","DKK","EUR","GBP","HKD",
-  "INR","JPY","KRW","MXN","NOK","NZD","SEK","SGD","TRY","ZAR",
-];
 
 /* ------------------------------------------------------
    PAGE
@@ -40,23 +32,23 @@ export default function Page() {
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
 
-  const [openDropdown, setOpenDropdown] = useState<"from"|"to"|null>(null);
+  const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
 
   const [amount, setAmount] = useState("1");
   const [result, setResult] = useState<number | null>(null);
   const [range, setRange] = useState("24H");
 
   /* REFS */
-  const chartContainerRef = useRef<HTMLDivElement|null>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
   const lastValidData = useRef<PricePoint[]>([]);
+  const fromPanelRef = useRef<HTMLDivElement | null>(null);
+  const toPanelRef = useRef<HTMLDivElement | null>(null);
 
-  const fromPanelRef = useRef<HTMLDivElement|null>(null);
-  const toPanelRef = useRef<HTMLDivElement|null>(null);
   /* ------------------------------------------------------
-     LOAD COINS (1250 crypto + fiats)
+     LOAD COINS (1250 crypto + fiat)
   ------------------------------------------------------ */
   useEffect(() => {
     async function loadCoins() {
@@ -65,7 +57,6 @@ export default function Page() {
 
       setAllCoins(data);
 
-      // default: BTC → USD
       const btc = data.find((c: Coin) => c.id === "bitcoin");
       const usd = data.find((c: Coin) => c.id === "usd");
 
@@ -75,21 +66,26 @@ export default function Page() {
 
     loadCoins();
   }, []);
+
   /* ------------------------------------------------------
      CLICK OUTSIDE TO CLOSE DROPDOWN
   ------------------------------------------------------ */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (openDropdown === "from" &&
-          fromPanelRef.current &&
-          !fromPanelRef.current.contains(e.target as Node)) {
+      if (
+        openDropdown === "from" &&
+        fromPanelRef.current &&
+        !fromPanelRef.current.contains(e.target as Node)
+      ) {
         setOpenDropdown(null);
         setFromSearch("");
       }
 
-      if (openDropdown === "to" &&
-          toPanelRef.current &&
-          !toPanelRef.current.contains(e.target as Node)) {
+      if (
+        openDropdown === "to" &&
+        toPanelRef.current &&
+        !toPanelRef.current.contains(e.target as Node)
+      ) {
         setOpenDropdown(null);
         setToSearch("");
       }
@@ -116,20 +112,21 @@ export default function Page() {
   );
 
   /* ------------------------------------------------------
-     SWAP COINS
+     SWAP
   ------------------------------------------------------ */
   const handleSwap = () => {
     if (!fromCoin || !toCoin) return;
     setFromCoin(toCoin);
     setToCoin(fromCoin);
   };
+
   /* ------------------------------------------------------
-     REALTIME PRICE FETCH (BATCHED)
+     REALTIME PRICE (BATCHED)
   ------------------------------------------------------ */
   const fetchPrices = useCallback(async (ids: string[]) => {
     const q = ids.join(",");
-    const res = await fetch(`/api/price?ids=${q}`);
-    return await res.json();
+    const r = await fetch(`/api/price?ids=${q}`);
+    return await r.json();
   }, []);
 
   /* ------------------------------------------------------
@@ -145,10 +142,10 @@ export default function Page() {
     }
 
     const ids = [fromCoin.symbol, toCoin.symbol];
-    const p = await fetchPrices(ids);
+    const prices = await fetchPrices(ids);
 
-    const fromUSD = p[fromCoin.symbol] ?? 0;
-    const toUSD = p[toCoin.symbol] ?? 1;
+    const fromUSD = prices[fromCoin.symbol] ?? 0;
+    const toUSD = prices[toCoin.symbol] ?? 1;
 
     const finalRate = fromUSD / toUSD;
     setResult(finalRate * amt);
@@ -156,41 +153,49 @@ export default function Page() {
 
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    const t = setTimeout(computeResult, 250);
-    return () => clearTimeout(t);
+
+    let active = true;
+
+    const run = async () => {
+      const r = await computeResult();
+      if (!active) return;
+    };
+
+    const t = setTimeout(run, 150);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
   }, [fromCoin, toCoin, amount, computeResult]);
+
   /* ------------------------------------------------------
-     RANGE MAPPING
+     RANGE → DAYS
   ------------------------------------------------------ */
   function rangeToDays(r: string) {
     switch (r) {
       case "24H": return 1;
-      case "7D":  return 7;
-      case "1M":  return 30;
-      case "3M":  return 90;
-      case "6M":  return 180;
-      case "1Y":  return 365;
-      default:    return 30;
+      case "7D": return 7;
+      case "1M": return 30;
+      case "3M": return 90;
+      case "6M": return 180;
+      case "1Y": return 365;
+      default: return 30;
     }
   }
 
   /* ------------------------------------------------------
-     FETCH HISTORY FROM API
+     FETCH HISTORY
   ------------------------------------------------------ */
   const fetchHistory = useCallback(async (coin: Coin, days: number) => {
-    return await fetch(
-      `/api/history?id=${coin.id}&days=${days}`
-    ).then((r) => r.json());
+    return await fetch(`/api/history?id=${coin.id}&days=${days}`).then((r) =>
+      r.json()
+    );
   }, []);
 
   /* ------------------------------------------------------
-     MERGE TWO USD HISTORIES
+     MERGE HISTORIES
   ------------------------------------------------------ */
-  function mergeNearest(
-    a: PricePoint[],
-    b: PricePoint[],
-    combine: (x: number, y: number) => number
-  ) {
+  function mergeNearest(a: PricePoint[], b: PricePoint[], combine: (x: number, y: number) => number) {
     const out: PricePoint[] = [];
     let j = 0;
 
@@ -199,7 +204,8 @@ export default function Page() {
         j < b.length - 1 &&
         Math.abs(b[j + 1].time - a[i].time) <
         Math.abs(b[j].time - a[i].time)
-      ) j++;
+      )
+        j++;
 
       out.push({
         time: a[i].time,
@@ -215,7 +221,6 @@ export default function Page() {
   ------------------------------------------------------ */
   const computeHistory = useCallback(async () => {
     if (!fromCoin || !toCoin) return lastValidData.current;
-
     const days = rangeToDays(range);
 
     const [fromHist, toHist] = await Promise.all([
@@ -223,8 +228,7 @@ export default function Page() {
       fetchHistory(toCoin, days),
     ]);
 
-    if (!fromHist.length || !toHist.length)
-      return lastValidData.current;
+    if (!fromHist.length || !toHist.length) return lastValidData.current;
 
     const merged = mergeNearest(fromHist, toHist, (a, b) => a / b);
     lastValidData.current = merged;
@@ -262,8 +266,7 @@ export default function Page() {
     chartRef.current = chart;
     seriesRef.current = series;
 
-    const handleResize = () =>
-      chart.resize(container.clientWidth, 390);
+    const handleResize = () => chart.resize(container.clientWidth, 390);
     window.addEventListener("resize", handleResize);
 
     return () => {
@@ -273,21 +276,36 @@ export default function Page() {
   }, []);
 
   /* ------------------------------------------------------
-     UPDATE CHART
+     UPDATE CHART (INSTANT + BACKGROUND REFRESH)
   ------------------------------------------------------ */
   useEffect(() => {
+    let active = true;
+
     async function updateChart() {
       if (!chartRef.current || !seriesRef.current) return;
 
-      const data = await computeHistory();
-      seriesRef.current.setData(data);
+      // show old data immediately
+      if (lastValidData.current.length > 0) {
+        seriesRef.current.setData(lastValidData.current);
+        chartRef.current.timeScale().fitContent();
+      }
+
+      // fetch fresh in background
+      const fresh = await computeHistory();
+      if (!active) return;
+
+      seriesRef.current.setData(fresh);
       chartRef.current.timeScale().fitContent();
     }
+
     updateChart();
+    return () => {
+      active = false;
+    };
   }, [computeHistory]);
 
   /* ------------------------------------------------------
-     THEME CHANGE SYNC
+     THEME CHANGE → UPDATE CHART
   ------------------------------------------------------ */
   useEffect(() => {
     const applyTheme = () => {
@@ -315,8 +333,9 @@ export default function Page() {
     window.addEventListener("theme-change", applyTheme);
     return () => window.removeEventListener("theme-change", applyTheme);
   }, []);
+
   /* ------------------------------------------------------
-     RENDER DROPDOWN ROW
+     RENDER ROW
   ------------------------------------------------------ */
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -381,12 +400,16 @@ export default function Page() {
   );
 
   /* ------------------------------------------------------
-     RESULT BLOCK
+     RENDER RESULT (ALWAYS VISIBLE)
   ------------------------------------------------------ */
   const renderResult = () => {
-    if (!result || !fromCoin || !toCoin) return null;
+    if (!fromCoin || !toCoin) return null;
 
-    const baseRate = result / Number(amount);
+    // show placeholder while loading
+    const displayed = result ?? 0;
+
+    const baseRate =
+      Number(amount) > 0 ? displayed / Number(amount) : 0;
 
     return (
       <div style={{ textAlign: "center", marginTop: "40px" }}>
@@ -395,19 +418,30 @@ export default function Page() {
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+          {result === null
+            ? "…"
+            : displayed.toLocaleString(undefined, {
+                maximumFractionDigits: 8,
+              })}
+          {" "}
           {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} ={" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+          {result === null
+            ? "…"
+            : baseRate.toLocaleString(undefined, {
+                maximumFractionDigits: 8,
+              })}{" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} ={" "}
-          {(1 / baseRate).toLocaleString(undefined, {
-            maximumFractionDigits: 8,
-          })}{" "}
+          {result === null
+            ? "…"
+            : (1 / baseRate).toLocaleString(undefined, {
+                maximumFractionDigits: 8,
+              })}{" "}
           {fromCoin.symbol}
         </div>
       </div>
@@ -445,11 +479,10 @@ export default function Page() {
   };
 
   /* ------------------------------------------------------
-     MAIN RENDER
+     MAIN UI
   ------------------------------------------------------ */
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
-      {/* THEME TOGGLE */}
       <div style={{ textAlign: "right", marginBottom: "10px" }}>
         <ThemeToggle />
       </div>
@@ -498,11 +531,18 @@ export default function Page() {
               }}
             >
               Enter a Number Greater than 0
-            </div> )}
+            </div>
+          )}
         </div>
 
         {/* FROM */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+          }}
+        >
           <h3>FROM</h3>
 
           <div
@@ -527,12 +567,22 @@ export default function Page() {
         </div>
 
         {/* SWAP */}
-        <div onClick={handleSwap} style={{ marginTop: "38px" }} className="swap-circle">
+        <div
+          onClick={handleSwap}
+          style={{ marginTop: "38px" }}
+          className="swap-circle"
+        >
           <div className="swap-icon" />
         </div>
 
         {/* TO */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+          }}
+        >
           <h3>TO</h3>
 
           <div
