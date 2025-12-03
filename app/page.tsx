@@ -5,7 +5,7 @@ import { createChart } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
 /* ------------------------------------------------------
-   INTERFACES
+   TYPES
 ------------------------------------------------------ */
 interface Coin {
   id: string;
@@ -16,15 +16,14 @@ interface Coin {
 }
 
 interface PricePoint {
-  time: number; // UNIX seconds
-  value: number; // USD value
+  time: number;
+  value: number;
 }
 
 /* ------------------------------------------------------
-   PAGE
+   COMPONENT
 ------------------------------------------------------ */
 export default function Page() {
-  /* STATE */
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
@@ -38,7 +37,6 @@ export default function Page() {
   const [result, setResult] = useState<number | null>(null);
   const [range, setRange] = useState("24H");
 
-  /* REFS */
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
@@ -48,27 +46,27 @@ export default function Page() {
   const toPanelRef = useRef<HTMLDivElement | null>(null);
 
   /* ------------------------------------------------------
-     LOAD COINS (1250 crypto + fiat)
+     LOAD COINS
   ------------------------------------------------------ */
   useEffect(() => {
     async function loadCoins() {
-      const res = await fetch("/api/coins");
-      const data = await res.json();
+      const r = await fetch("/api/coins");
+      const data = await r.json();
 
       setAllCoins(data);
 
       const btc = data.find((c: Coin) => c.id === "bitcoin");
       const usd = data.find((c: Coin) => c.id === "usd");
 
-      setFromCoin(btc || data[1]);
-      setToCoin(usd || data[0]);
+      setFromCoin(btc || data[0]);
+      setToCoin(usd || data[1]);
     }
 
     loadCoins();
   }, []);
 
   /* ------------------------------------------------------
-     CLICK OUTSIDE TO CLOSE DROPDOWN
+     CLICK OUTSIDE DROPDOWN
   ------------------------------------------------------ */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -96,12 +94,12 @@ export default function Page() {
   }, [openDropdown]);
 
   /* ------------------------------------------------------
-     FILTER COINS
+     FILTER
   ------------------------------------------------------ */
   const filteredCoins = useCallback(
-    (input: string) => {
-      if (!input) return allCoins;
-      const s = input.toLowerCase();
+    (query: string) => {
+      if (!query) return allCoins;
+      const s = query.toLowerCase();
       return allCoins.filter(
         (c) =>
           c.symbol.toLowerCase().includes(s) ||
@@ -121,7 +119,7 @@ export default function Page() {
   };
 
   /* ------------------------------------------------------
-     REALTIME PRICE (BATCHED)
+     PRICE FETCH (via IDs)
   ------------------------------------------------------ */
   const fetchPrices = useCallback(async (ids: string[]) => {
     const q = ids.join(",");
@@ -130,7 +128,7 @@ export default function Page() {
   }, []);
 
   /* ------------------------------------------------------
-     COMPUTE RESULT
+     COMPUTE CONVERSION
   ------------------------------------------------------ */
   const computeResult = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
@@ -141,11 +139,12 @@ export default function Page() {
       return;
     }
 
-    const ids = [fromCoin.symbol, toCoin.symbol];
+    const ids = [fromCoin.id, toCoin.id];   // IMPORTANT FIX
+
     const prices = await fetchPrices(ids);
 
-    const fromUSD = prices[fromCoin.symbol] ?? 0;
-    const toUSD = prices[toCoin.symbol] ?? 1;
+    const fromUSD = prices[fromCoin.id] ?? 0;
+    const toUSD = prices[toCoin.id] ?? 1;
 
     const finalRate = fromUSD / toUSD;
     setResult(finalRate * amt);
@@ -157,7 +156,7 @@ export default function Page() {
     let active = true;
 
     const run = async () => {
-      const r = await computeResult();
+      await computeResult();
       if (!active) return;
     };
 
@@ -184,17 +183,13 @@ export default function Page() {
   }
 
   /* ------------------------------------------------------
-     FETCH HISTORY
+     HISTORY
   ------------------------------------------------------ */
   const fetchHistory = useCallback(async (coin: Coin, days: number) => {
-    return await fetch(`/api/history?id=${coin.id}&days=${days}`).then((r) =>
-      r.json()
-    );
+    const r = await fetch(`/api/history?id=${coin.id}&days=${days}`);
+    return await r.json();
   }, []);
 
-  /* ------------------------------------------------------
-     MERGE HISTORIES
-  ------------------------------------------------------ */
   function mergeNearest(a: PricePoint[], b: PricePoint[], combine: (x: number, y: number) => number) {
     const out: PricePoint[] = [];
     let j = 0;
@@ -216,11 +211,9 @@ export default function Page() {
     return out;
   }
 
-  /* ------------------------------------------------------
-     COMPUTE HISTORY
-  ------------------------------------------------------ */
   const computeHistory = useCallback(async () => {
     if (!fromCoin || !toCoin) return lastValidData.current;
+
     const days = rangeToDays(range);
 
     const [fromHist, toHist] = await Promise.all([
@@ -276,7 +269,7 @@ export default function Page() {
   }, []);
 
   /* ------------------------------------------------------
-     UPDATE CHART (INSTANT + BACKGROUND REFRESH)
+     UPDATE CHART (INSTANT + BACKGROUND)
   ------------------------------------------------------ */
   useEffect(() => {
     let active = true;
@@ -284,13 +277,13 @@ export default function Page() {
     async function updateChart() {
       if (!chartRef.current || !seriesRef.current) return;
 
-      // show old data immediately
+      // show last data instantly
       if (lastValidData.current.length > 0) {
         seriesRef.current.setData(lastValidData.current);
         chartRef.current.timeScale().fitContent();
       }
 
-      // fetch fresh in background
+      // fetch fresh
       const fresh = await computeHistory();
       if (!active) return;
 
@@ -305,37 +298,57 @@ export default function Page() {
   }, [computeHistory]);
 
   /* ------------------------------------------------------
-     THEME CHANGE → UPDATE CHART
+     RESULT BLOCK (FIXED)
   ------------------------------------------------------ */
-  useEffect(() => {
-    const applyTheme = () => {
-      if (!chartRef.current || !seriesRef.current) return;
+  const renderResult = () => {
+    if (!fromCoin || !toCoin) return null;
 
-      const isDark = document.documentElement.classList.contains("dark");
+    // First-load behavior
+    if (result === null) {
+      return (
+        <div style={{ textAlign: "center", marginTop: "40px" }}>
+          <div style={{ fontSize: "22px", opacity: 0.65 }}>
+            Loading price…
+          </div>
+        </div>
+      );
+    }
 
-      chartRef.current.applyOptions({
-        layout: {
-          background: { color: isDark ? "#111" : "#fff" },
-          textColor: isDark ? "#eee" : "#1a1a1a",
-        },
-        grid: {
-          vertLines: { color: isDark ? "#2a2a2a" : "#e3e3e3" },
-          horzLines: { color: isDark ? "#2a2a2a" : "#e3e3e3" },
-        },
-      });
+    const displayed = result;
+    const baseRate = displayed / Number(amount);
 
-      seriesRef.current.applyOptions({
-        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-      });
-    };
+    return (
+      <div style={{ textAlign: "center", marginTop: "40px" }}>
+        <div style={{ fontSize: "22px", opacity: 0.65 }}>
+          1 {fromCoin.symbol} → {toCoin.symbol}
+        </div>
 
-    window.addEventListener("theme-change", applyTheme);
-    return () => window.removeEventListener("theme-change", applyTheme);
-  }, []);
+        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
+          {displayed.toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}{" "}
+          {toCoin.symbol}
+        </div>
+
+        <div style={{ marginTop: "10px", opacity: 0.7 }}>
+          1 {fromCoin.symbol} ={" "}
+          {baseRate.toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}{" "}
+          {toCoin.symbol}
+          <br />
+          1 {toCoin.symbol} ={" "}
+          {(1 / baseRate).toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}{" "}
+          {fromCoin.symbol}
+        </div>
+      </div>
+    );
+  };
 
   /* ------------------------------------------------------
-     RENDER ROW
+     DROPDOWN ROW
   ------------------------------------------------------ */
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -375,7 +388,7 @@ export default function Page() {
   );
 
   /* ------------------------------------------------------
-     RENDER DROPDOWN PANEL
+     DROPDOWN PANEL
   ------------------------------------------------------ */
   const renderDropdown = useCallback(
     (type: "from" | "to") => {
@@ -398,55 +411,6 @@ export default function Page() {
     },
     [filteredCoins, renderRow, fromSearch, toSearch]
   );
-
-  /* ------------------------------------------------------
-     RENDER RESULT (ALWAYS VISIBLE)
-  ------------------------------------------------------ */
-  const renderResult = () => {
-    if (!fromCoin || !toCoin) return null;
-
-    // show placeholder while loading
-    const displayed = result ?? 0;
-
-    const baseRate =
-      Number(amount) > 0 ? displayed / Number(amount) : 0;
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "40px" }}>
-        <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
-        </div>
-
-        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result === null
-            ? "…"
-            : displayed.toLocaleString(undefined, {
-                maximumFractionDigits: 8,
-              })}
-          {" "}
-          {toCoin.symbol}
-        </div>
-
-        <div style={{ marginTop: "10px", opacity: 0.7 }}>
-          1 {fromCoin.symbol} ={" "}
-          {result === null
-            ? "…"
-            : baseRate.toLocaleString(undefined, {
-                maximumFractionDigits: 8,
-              })}{" "}
-          {toCoin.symbol}
-          <br />
-          1 {toCoin.symbol} ={" "}
-          {result === null
-            ? "…"
-            : (1 / baseRate).toLocaleString(undefined, {
-                maximumFractionDigits: 8,
-              })}{" "}
-          {fromCoin.symbol}
-        </div>
-      </div>
-    );
-  };
 
   /* ------------------------------------------------------
      RANGE BUTTONS
@@ -536,13 +500,7 @@ export default function Page() {
         </div>
 
         {/* FROM */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
           <h3>FROM</h3>
 
           <div
@@ -567,22 +525,12 @@ export default function Page() {
         </div>
 
         {/* SWAP */}
-        <div
-          onClick={handleSwap}
-          style={{ marginTop: "38px" }}
-          className="swap-circle"
-        >
+        <div onClick={handleSwap} style={{ marginTop: "38px" }} className="swap-circle">
           <div className="swap-icon" />
         </div>
 
         {/* TO */}
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            position: "relative",
-          }}
-        >
+        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
           <h3>TO</h3>
 
           <div
@@ -610,10 +558,8 @@ export default function Page() {
       {/* RESULT */}
       {renderResult()}
 
-      {/* RANGE BUTTONS */}
       <RangeButtons />
 
-      {/* CHART */}
       <div
         ref={chartContainerRef}
         style={{
