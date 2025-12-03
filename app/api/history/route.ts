@@ -1,170 +1,81 @@
 import { NextResponse } from "next/server";
 
-const CACHE_TIME = 60 * 60 * 24; // 24 hours
-const FIAT_START = "1999-01-01";
+const cache: Record<
+  string,
+  { data: any; ts: number }
+> = {};
 
-/* ============================================================
-   SAFE FETCH WITH RETRY (fixes CG 429 failures)
-============================================================ */
-async function fetchWithRetry(url: string, tries = 4, delay = 400): Promise<Response> {
-  for (let i = 0; i < tries; i++) {
-    const r = await fetch(url);
-    if (r.ok) return r;
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-    // wait longer each retry
-    await new Promise((res) => setTimeout(res, delay + i * 300));
-  }
-  throw new Error("fetchWithRetry failed after retries: " + url);
+function buildKey(id: string, days: string) {
+  return `${id}-${days}`;
 }
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
+  const days = url.searchParams.get("days");
 
-  const id = searchParams.get("id")!;
-  const type = searchParams.get("type")!; // "crypto" | "fiat" | "usd"
-  const symbol = searchParams.get("symbol")!;
-  const days = Number(searchParams.get("days")!);
+  if (!id || !days) {
+    return NextResponse.json({ error: "Missing id or days" }, { status: 400 });
+  }
 
-  try {
-    /* ============================================================
-       USD HISTORY (always flat)
-============================================================ */
-    if (type === "usd" || symbol === "USD") {
+  const key = buildKey(id, days);
+
+  if (cache[key] && Date.now() - cache[key].ts < CACHE_TTL) {
+    return NextResponse.json(cache[key].data);
+  }
+
+  let out: { time: number; value: number }[] = [];
+
+  const isFiat = !id.includes("-") && id.length <= 3 && id !== "bitcoin";
+
+  // ---- Fiat history ------------------------------------
+  if (isFiat) {
+    if (id.toUpperCase() === "USD") {
       const now = Date.now();
-      const out: any[] = [];
-
-      const points = days === 0 ? 365 : days || 1;
-
-      for (let i = points; i >= 0; i--) {
-        out.push({
-          time: Math.floor((now - i * 86400000) / 1000),
-          value: 1,
-        });
+      const arr = [];
+      for (let i = Number(days); i >= 0; i--) {
+        const t = now - i * 86400000;
+        arr.push({ time: Math.floor(t / 1000), value: 1 });
       }
-
-      return NextResponse.json(out);
-    }
-
-    /* ============================================================
-       ALL RANGE: days = 0  → full history
-============================================================ */
-    if (days === 0) {
-      if (type === "crypto") {
-        // Full crypto history (CG)
-        const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=max`;
-        const r = await fetchWithRetry(url);
-        const d = await r.json();
-
-        const arr =
-          d.prices?.map((p: any) => ({
-            time: Math.floor(p[0] / 1000),
-            value: p[1],
-          })) ?? [];
-
-        return NextResponse.json(arr);
-      }
-
-      if (type === "fiat") {
-        const now = new Date();
-        const end = now.toISOString().slice(0, 10);
-
-        const url = `https://api.frankfurter.app/${FIAT_START}..${end}?from=USD&to=${symbol}`;
-        const r = await fetchWithRetry(url);
-        const d = await r.json();
-
-        const arr = Object.keys(d.rates).map((date) => ({
-          time: Math.floor(new Date(date).getTime() / 1000),
-          value: 1 / d.rates[date][symbol],
-        }));
-
-        return NextResponse.json(arr.sort((a, b) => a.time - b.time));
-      }
-    }
-
-    /* ============================================================
-       24H RANGE (days = 1)
-============================================================ */
-    if (days === 1) {
-      if (type === "crypto") {
-        // High-resolution crypto 24H curve
-        const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=1`;
-        const r = await fetchWithRetry(url);
-        const d = await r.json();
-
-        const arr =
-          d.prices?.map((p: any) => ({
-            time: Math.floor(p[0] / 1000),
-            value: p[1],
-          })) ?? [];
-
-        return NextResponse.json(arr);
-      }
-
-      if (type === "fiat") {
-        // Fiat only has 1 datapoint → flat
-        const url = `https://api.frankfurter.app/latest?from=USD&to=${symbol}`;
-        const r = await fetchWithRetry(url);
-        const d = await r.json();
-
-        const usdToFiat = d.rates[symbol];
-        const fiatUSD = 1 / usdToFiat;
-
-        const now = Date.now();
-        const out = [];
-
-        // create multiple points so chart renders
-        for (let i = 24; i >= 0; i--) {
-          out.push({
-            time: Math.floor((now - i * 3600000) / 1000),
-            value: fiatUSD,
-          });
-        }
-
-        return NextResponse.json(out);
-      }
-    }
-
-    /* ============================================================
-       STANDARD RANGES (7D, 1M, 3M, 6M, 1Y)
-============================================================ */
-
-    if (type === "crypto") {
-      const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-      const r = await fetchWithRetry(url);
-      const d = await r.json();
-
-      const arr =
-        d.prices?.map((p: any) => ({
-          time: Math.floor(p[0] / 1000),
-          value: p[1],
-        })) ?? [];
-
-      return NextResponse.json(arr);
-    }
-
-    if (type === "fiat") {
+      out = arr;
+    } else {
       const now = new Date();
-      const start = new Date(now.getTime() - days * 86400000);
-
+      const start = new Date(now.getTime() - Number(days) * 86400000);
       const startISO = start.toISOString().slice(0, 10);
       const endISO = now.toISOString().slice(0, 10);
 
-      const url = `https://api.frankfurter.app/${startISO}..${endISO}?from=USD&to=${symbol}`;
-      const r = await fetchWithRetry(url);
-      const d = await r.json();
+      const fx = await fetch(
+        `https://api.frankfurter.app/${startISO}..${endISO}?from=USD&to=${id.toUpperCase()}`
+      ).then((r) => r.json());
 
-      const arr = Object.keys(d.rates).map((date) => ({
-        time: Math.floor(new Date(date).getTime() / 1000),
-        value: 1 / d.rates[date][symbol],
-      }));
-
-      return NextResponse.json(arr.sort((a, b) => a.time - b.time));
+      out = Object.keys(fx.rates).map((d) => {
+        const usdToFiat = fx.rates[d][id.toUpperCase()];
+        return {
+          time: Math.floor(new Date(d).getTime() / 1000),
+          value: 1 / usdToFiat,
+        };
+      });
     }
-
-    return NextResponse.json({ error: "Invalid type" }, { status: 400 });
-
-  } catch (err) {
-    console.error("HISTORY API ERROR:", err);
-    return NextResponse.json({ error: "Failed to fetch history" }, { status: 500 });
   }
+
+  // ---- Crypto history -----------------------------------
+  if (!isFiat) {
+    const cg = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+    ).then((r) => r.json());
+
+    out =
+      cg.prices?.map((p: any) => ({
+        time: Math.floor(p[0] / 1000),
+        value: p[1],
+      })) ?? [];
+  }
+
+  out.sort((a, b) => a.time - b.time);
+
+  cache[key] = { data: out, ts: Date.now() };
+
+  return NextResponse.json(out);
 }
