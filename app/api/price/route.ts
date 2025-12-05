@@ -1,61 +1,72 @@
 import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
+const CACHE_TIME = 60;
 
-const FIATS = [
-  "usd","eur","gbp","jpy","cad","aud","chf","cny",
-  "hkd","inr","nzd","sek","sgd","zar"
-];
+/* ============================================================
+   SAFE FETCH WITH RETRY (protects against temporary failures)
+============================================================ */
+async function fetchWithRetry(url: string, tries = 4, delay = 300): Promise<Response> {
+  for (let i = 0; i < tries; i++) {
+    const r = await fetch(url);
+    if (r.ok) return r;
+
+    await new Promise((res) => setTimeout(res, delay + i * 200));
+  }
+  throw new Error("PRICE fetch failed after retries: " + url);
+}
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const ids = url.searchParams.get("ids");
+  const { searchParams } = new URL(req.url);
 
-  if (!ids) {
-    return NextResponse.json({ error: "missing_ids" }, { status: 400 });
-  }
-
-  const list = ids.split(",").map((x) => x.toLowerCase());
-  const cryptos = list.filter((c) => !FIATS.includes(c));
-  const fiats = list.filter((f) => FIATS.includes(f));
-
-  const result: Record<string, number> = {};
-
-  // --------------------------------------------------
-  // FETCH CRYPTO → USD
-  // --------------------------------------------------
-  if (cryptos.length > 0) {
-    const cgURL = 
-      "https://api.coingecko.com/api/v3/simple/price?ids=" +
-      cryptos.join(",") +
-      "&vs_currencies=usd";
-
-    const r = await fetch(cgURL, { cache: "no-store" }).then((r) => r.json());
-
-    for (const id of cryptos) {
-      result[id] = r[id]?.usd ?? 0;
+  const id = searchParams.get("id")!;
+  const type = searchParams.get("type")!; // "crypto" | "fiat" | "usd"
+  const symbol = searchParams.get("symbol")!;
+  
+  try {
+    /* ============================================================
+       USD → USD
+============================================================ */
+    if (type === "usd" || symbol === "USD") {
+      return NextResponse.json({ value: 1 });
     }
-  }
 
-  // --------------------------------------------------
-  // FETCH FIAT → USD
-  // --------------------------------------------------
-  if (fiats.length > 0) {
-    const upper = fiats.map((x) => x.toUpperCase()).join(",");
+    /* ============================================================
+       CRYPTO → USD (CoinGecko Simple Price)
+============================================================ */
+    if (type === "crypto") {
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`;
+      const r = await fetchWithRetry(url);
+      const d = await r.json();
 
-    const fx = await fetch(
-      "https://api.frankfurter.app/latest?from=USD&to=" + upper
-    ).then((r) => r.json());
+      const value = d[id]?.usd ?? null;
 
-    for (const id of fiats) {
-      if (id === "usd") {
-        result[id] = 1;
-      } else {
-        const rate = fx.rates?.[id.toUpperCase()];
-        result[id] = rate ? 1 / rate : 0;
-      }
+      return NextResponse.json({ value });
     }
-  }
 
-  return NextResponse.json(result);
+    /* ============================================================
+       FIAT → USD (Frankfurter)
+============================================================ */
+    if (type === "fiat") {
+      const url = `https://api.frankfurter.app/latest?from=USD&to=${symbol}`;
+      const r = await fetchWithRetry(url);
+      const d = await r.json();
+
+      const usdToFiat = d.rates[symbol];
+      const fiatUSD = 1 / usdToFiat;
+
+      return NextResponse.json({ value: fiatUSD });
+    }
+
+    return NextResponse.json(
+      { error: "Invalid type" },
+      { status: 400 }
+    );
+
+  } catch (err) {
+    console.error("PRICE API ERROR:", err);
+    return NextResponse.json(
+      { error: "Failed to fetch price" },
+      { status: 500 }
+    );
+  }
 }
