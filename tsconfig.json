@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -11,33 +15,33 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "react-jsx",
+    "jsx": "preserve",
     "incremental": true,
-
     "plugins": [
       {
         "name": "next"
       }
     ],
-
     "paths": {
-      "@/*": ["./*"],
-
+      "@/*": [
+        "./*"
+      ],
       // ⭐ FORCE TYPECRIPT TO USE LOCAL V4 TYPINGS ⭐
       "lightweight-charts": [
         "./node_modules/lightweight-charts/dist/typings.d.ts"
       ]
     }
   },
-
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
-, "next.config.js"  ],
-
-  "exclude": ["node_modules"]
+    "**/*.mts",
+    "next.config.js"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
