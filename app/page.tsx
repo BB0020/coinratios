@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { createChart } from "lightweight-charts";
+import ThemeToggle from "./ThemeToggle";
 
 interface Coin {
   id: string;
@@ -11,308 +12,558 @@ interface Coin {
   type: "crypto" | "fiat";
 }
 
+interface PricePoint {
+  time: number;
+  value: number;
+}
+
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
-  const [amount, setAmount] = useState(1);
+  const [fromCoin, setFromCoin] = useState<Coin | null>(null);
+  const [toCoin, setToCoin] = useState<Coin | null>(null);
 
-  const [fromCoin, setFromCoin] = useState<Coin>({
-    id: "bitcoin",
-    symbol: "BTC",
-    name: "Bitcoin",
-    image: "https://assets.coingecko.com/coins/images/1/large/bitcoin.png",
-    type: "crypto",
-  });
+  const [fromSearch, setFromSearch] = useState("");
+  const [toSearch, setToSearch] = useState("");
 
-  const [toCoin, setToCoin] = useState<Coin>({
-    id: "usd",
-    symbol: "USD",
-    name: "US Dollar",
-    image: "https://flagcdn.com/us.svg",
-    type: "fiat",
-  });
+  const [openDropdown, setOpenDropdown] =
+    useState<"from" | "to" | null>(null);
 
-  const [converted, setConverted] = useState<number | null>(null);
-  const [reverseRate, setReverseRate] = useState<number | null>(null);
-  const [range, setRange] = useState("24h");
+  const [amount, setAmount] = useState("1");
+  const [result, setResult] = useState<number | null>(null);
+  const [range, setRange] = useState("24H");
 
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chart = useRef<any>(null);
-  const series = useRef<any>(null);
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<any>(null);
+  const seriesRef = useRef<any>(null);
 
-  // Load coins
+  const lastValidData = useRef<PricePoint[]>([]);
+
+  const fromPanelRef = useRef<HTMLDivElement | null>(null);
+  const toPanelRef = useRef<HTMLDivElement | null>(null);
+
+  /* LOAD COINS */
   useEffect(() => {
-    fetch("/api/coins")
-      .then((r) => r.json())
-      .then((data) => setAllCoins(data));
+    async function load() {
+      const r = await fetch("/api/coins");
+      const list = await r.json();
+      setAllCoins(list);
+
+      setFromCoin(list.find((c: Coin) => c.id === "bitcoin") || list[0]);
+      setToCoin(list.find((c: Coin) => c.id === "usd") || list[1]);
+    }
+    load();
   }, []);
 
-  // Fetch price
-  const fetchPrice = useCallback(async () => {
-    const url = `/api/price?ids=${fromCoin.id},${toCoin.id}`;
-    const res = await fetch(url);
-    const data = await res.json();
+  /* CLICK OUTSIDE TO CLOSE DROPDOWNS */
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        openDropdown === "from" &&
+        fromPanelRef.current &&
+        !fromPanelRef.current.contains(e.target as Node)
+      ) {
+        setOpenDropdown(null);
+        setFromSearch("");
+      }
+      if (
+        openDropdown === "to" &&
+        toPanelRef.current &&
+        !toPanelRef.current.contains(e.target as Node)
+      ) {
+        setOpenDropdown(null);
+        setToSearch("");
+      }
+    };
 
-    const fromUSD = data[fromCoin.id];
-    const toUSD = data[toCoin.id];
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [openDropdown]);
 
-    if (!fromUSD || !toUSD) {
-      setConverted(null);
-      setReverseRate(null);
+  /* FILTER COINS */
+  const filteredCoins = useCallback(
+    (query: string) => {
+      if (!query) return allCoins;
+      const s = query.toLowerCase();
+      return allCoins.filter(
+        (c) =>
+          c.symbol.toLowerCase().includes(s) ||
+          c.name.toLowerCase().includes(s)
+      );
+    },
+    [allCoins]
+  );
+
+  /* SWAP TOKENS */
+  const handleSwap = () => {
+    if (fromCoin && toCoin) {
+      setFromCoin(toCoin);
+      setToCoin(fromCoin);
+    }
+  };
+
+  /* PRICE FETCH */
+  const fetchPrices = useCallback(async (ids: string[]) => {
+    const q = ids.join(",");
+    const r = await fetch(`/api/price?ids=${q}`);
+    return await r.json();
+  }, []);
+
+  /* COMPUTE RESULT */
+  const computeResult = useCallback(async () => {
+    if (!fromCoin || !toCoin) return;
+
+    const amt = Number(amount);
+    if (!amt || amt <= 0) {
+      setResult(null);
       return;
     }
 
-    const rate = fromUSD / toUSD;
-    setConverted(rate * amount);
-    setReverseRate(1 / rate);
-  }, [fromCoin, toCoin, amount]);
+    const prices = await fetchPrices([fromCoin.id, toCoin.id]);
+    const fromUSD = prices[fromCoin.id] ?? 0;
+    const toUSD = prices[toCoin.id] ?? 1;
+
+    setResult((fromUSD / toUSD) * amt);
+  }, [fromCoin, toCoin, amount, fetchPrices]);
 
   useEffect(() => {
-    fetchPrice();
-  }, [fetchPrice]);
+    if (!fromCoin || !toCoin) return;
+    const t = setTimeout(() => computeResult(), 120);
+    return () => clearTimeout(t);
+  }, [fromCoin, toCoin, amount, computeResult]);
 
-  // Range mapping
-  const rangeDays: Record<string, number> = {
-    "24h": 1,
-    "7d": 7,
-    "1m": 30,
-    "3m": 90,
-    "6m": 180,
-    "1y": 365,
+  /* RANGE → DAYS */
+  const daysForRange = (r: string) =>
+    r === "24H"
+      ? 1
+      : r === "7D"
+      ? 7
+      : r === "1M"
+      ? 30
+      : r === "3M"
+      ? 90
+      : r === "6M"
+      ? 180
+      : 365;
+
+  /* HISTORY FETCH */
+  const fetchHistory = useCallback(async (coin: Coin, days: number) => {
+    const r = await fetch(`/api/history?id=${coin.id}&days=${days}`);
+    return await r.json();
+  }, []);
+
+  /* MERGE BY NEAREST TIMESTAMP */
+  const mergeNearest = (
+    a: PricePoint[],
+    b: PricePoint[],
+    op: (x: number, y: number) => number
+  ) => {
+    const out: PricePoint[] = [];
+    let j = 0;
+
+    for (let i = 0; i < a.length; i++) {
+      while (
+        j < b.length - 1 &&
+        Math.abs(b[j + 1].time - a[i].time) <
+          Math.abs(b[j].time - a[i].time)
+      ) {
+        j++;
+      }
+      out.push({
+        time: a[i].time,
+        value: op(a[i].value, b[j].value),
+      });
+    }
+    return out;
   };
 
-  // Fetch history and update chart
-  const fetchHistory = useCallback(async () => {
-    const days = rangeDays[range];
+  /* COMPUTE MERGED HISTORY */
+  const computeHistory = useCallback(async () => {
+    if (!fromCoin || !toCoin) return lastValidData.current;
 
-    const [fromRes, toRes] = await Promise.all([
-      fetch(`/api/history?id=${fromCoin.id}&days=${days}`).then((r) => r.json()),
-      fetch(`/api/history?id=${toCoin.id}&days=${days}`).then((r) => r.json()),
+    const days = daysForRange(range);
+
+    const [fa, fb] = await Promise.all([
+      fetchHistory(fromCoin, days),
+      fetchHistory(toCoin, days),
     ]);
 
-    if (!chart.current) return;
+    if (!fa.length || !fb.length) return lastValidData.current;
 
-    if (series.current) chart.current.removeSeries(series.current);
+    const merged = mergeNearest(fa, fb, (x, y) => x / y);
+    lastValidData.current = merged;
+    return merged;
+  }, [fromCoin, toCoin, range, fetchHistory]);
 
-    const s = chart.current.addLineSeries({
-      color: "#2962FF",
-      lineWidth: 2,
-    });
-
-    // Compute ratio
-    const len = Math.min(fromRes.length, toRes.length);
-    const points = [];
-    for (let i = 0; i < len; i++) {
-      const t1 = fromRes[i].time;
-      const t2 = toRes[i].time;
-      if (Math.abs(t1 - t2) < 6 * 3600_000) {
-        points.push({
-          time: Math.floor(t1 / 1000),
-          value: fromRes[i].value / toRes[i].value,
-        });
-      }
-    }
-
-    s.setData(points);
-    series.current = s;
-  }, [fromCoin, toCoin, range]);
-
+  /* INIT CHART */
   useEffect(() => {
-    fetchHistory();
-  }, [fetchHistory]);
+    if (!chartContainerRef.current || chartRef.current) return;
 
-  // Chart init
-  useEffect(() => {
-    if (!chartRef.current) return;
-
-    const c = createChart(chartRef.current, {
-      width: chartRef.current.clientWidth,
-      height: 300,
-      layout: { background: { color: "transparent" } },
+    const c = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 380,
+      layout: {
+        background: {
+          color: document.documentElement.classList.contains("dark")
+            ? "#111"
+            : "#fff",
+        },
+        textColor: document.documentElement.classList.contains("dark")
+          ? "#eee"
+          : "#222",
+      },
       grid: {
-        vertLines: { color: "#ddd" },
-        horzLines: { color: "#ddd" },
+        vertLines: {
+          color: document.documentElement.classList.contains("dark")
+            ? "#2a2a2a"
+            : "#e3e3e3",
+      },    
+        horzLines: {
+          color: document.documentElement.classList.contains("dark")
+            ? "#2a2a2a"
+            : "#e3e3e3",
+        },
       },
     });
 
-    chart.current = c;
+    const s = c.addAreaSeries({
+      lineColor: "#3b82f6",
+      topColor: "rgba(59,130,246,0.30)",
+      bottomColor: "rgba(0,0,0,0)",
+      lineWidth: 2,
+    });
+
+    chartRef.current = c;
+    seriesRef.current = s;
 
     const resize = () =>
-      c.applyOptions({ width: chartRef.current!.clientWidth });
-
+      c.resize(chartContainerRef.current!.clientWidth, 380);
     window.addEventListener("resize", resize);
+
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // Swap button handler
-  const swapCoins = () => {
-    const temp = fromCoin;
-    setFromCoin(toCoin);
-    setToCoin(temp);
-  };
+  /* UPDATE CHART */
+  useEffect(() => {
+    let active = true;
+    async function update() {
+      if (!chartRef.current || !seriesRef.current) return;
 
-  const fallbackImg = (e: any) => {
-    e.target.src = "/fallback.png";
-  };
+      if (lastValidData.current.length > 0) {
+        seriesRef.current.setData(lastValidData.current);
+        chartRef.current.timeScale().fitContent();
+      }
 
-  return (
-    <div className="main-wrapper">
+      const fresh = await computeHistory();
+      if (!active) return;
 
-      {/* SINGLE ROW: Amount + From + Swap + To */}
-      <div className="row-flex">
+      seriesRef.current.setData(fresh);
+      chartRef.current.timeScale().fitContent();
+    }
+    update();
+    return () => {
+      active = false;
+    };
+  }, [computeHistory]);
 
-        {/* AMOUNT */}
-        <div className="amount-box">
-          <label className="section-label">AMOUNT</label>
-          <input
-            className="amount-input"
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
-          />
+  /* RENDER RESULT BLOCK */
+  const renderResult = () => {
+    if (!fromCoin || !toCoin) return null;
+    if (result === null)
+      return (
+        <div style={{ textAlign: "center", marginTop: "40px" }}>
+          <div style={{ fontSize: "22px", opacity: 0.65 }}>
+            Loading price…
+          </div>
         </div>
+      );
 
-        {/* FROM SELECTOR */}
-        <Selector
-          label="FROM"
-          selected={fromCoin}
-          setSelected={setFromCoin}
-          coins={allCoins}
-          fallbackImg={fallbackImg}
-        />
+    const base = result / Number(amount);
 
-        {/* SWAP CIRCLE */}
-        <div className="swap-circle" onClick={swapCoins}>
-          <img src="/swap.svg" className="swap-icon" />
+    return (
+      <div style={{ textAlign: "center", marginTop: "40px" }}>
+        <div style={{ fontSize: "22px", opacity: 0.65 }}>
+          1 {fromCoin.symbol} → {toCoin.symbol}
         </div>
-
-        {/* TO SELECTOR */}
-        <Selector
-          label="TO"
-          selected={toCoin}
-          setSelected={setToCoin}
-          coins={allCoins}
-          fallbackImg={fallbackImg}
-        />
-      </div>
-
-      {/* Conversion Title */}
-      <div className="conversion-title">
-        {amount} {fromCoin.symbol} → {toCoin.symbol}
-      </div>
-
-      {/* Main Converted Output */}
-      <div className="conversion-main">
-        {converted !== null
-          ? `${converted.toLocaleString(undefined, {
-              maximumFractionDigits: 8,
-            })} ${toCoin.symbol}`
-          : "Loading..."}
-      </div>
-
-      {/* Sub Info */}
-      {reverseRate !== null && (
-        <div className="sub-info">
-          1 {fromCoin.symbol} =
-          {" "}
-          {(converted! / amount).toLocaleString(undefined, {
+        <div
+          style={{
+            fontSize: "56px",
+            fontWeight: 700,
+            marginTop: "10px",
+          }}
+        >
+          {result.toLocaleString(undefined, {
             maximumFractionDigits: 8,
-          })}
-          {" "}
+          })}{" "}
+          {toCoin.symbol}
+        </div>
+        <div style={{ marginTop: "10px", opacity: 0.7 }}>
+          1 {fromCoin.symbol} ={" "}
+          {base.toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}{" "}
           {toCoin.symbol}
           <br />
-          1 {toCoin.symbol} =
-          {" "}
-          {reverseRate.toLocaleString(undefined, {
+          1 {toCoin.symbol} ={" "}
+          {(1 / base).toLocaleString(undefined, {
             maximumFractionDigits: 8,
-          })}
-          {" "}
+          })}{" "}
           {fromCoin.symbol}
         </div>
-      )}
+      </div>
+    );
+  };
 
-      {/* Range Buttons */}
-      <div className="range-buttons">
-        {["24h", "7d", "1m", "3m", "6m", "1y"].map((r) => (
+  /* DROPDOWN ROW */
+  const renderRow = useCallback(
+    (coin: Coin, type: "from" | "to") => {
+      const disabled =
+        (type === "from" && coin.id === toCoin?.id) ||
+        (type === "to" && coin.id === fromCoin?.id);
+
+      const selected =
+        (type === "from" && coin.id === fromCoin?.id) ||
+        (type === "to" && coin.id === toCoin?.id);
+
+      let cls = "dropdown-row";
+      if (selected) cls += " dropdown-selected";
+      if (disabled) cls += " dropdown-disabled";
+
+      return (
+        <div
+          key={coin.id}
+          className={cls}
+          onClick={() => {
+            if (disabled) return;
+            type === "from" ? setFromCoin(coin) : setToCoin(coin);
+            setOpenDropdown(null);
+            setFromSearch("");
+            setToSearch("");
+          }}
+        >
+          <img src={coin.image} className="dropdown-flag" />
+          <div className="dropdown-text">
+            <div className="dropdown-symbol">{coin.symbol}</div>
+            <div className="dropdown-name">{coin.name}</div>
+          </div>
+        </div>
+      );
+    },
+    [fromCoin, toCoin]
+  );
+
+  /* DROPDOWN WRAPPER */
+  const renderDropdown = useCallback(
+    (type: "from" | "to") => {
+      const search = type === "from" ? fromSearch : toSearch;
+      const setSearch = type === "from" ? setFromSearch : setToSearch;
+      const ref = type === "from" ? fromPanelRef : toPanelRef;
+
+      return (
+        <div className="dropdown-panel" ref={ref}>
+          <input
+            className="dropdown-search"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {filteredCoins(search).map((coin) => renderRow(coin, type))}
+        </div>
+      );
+    },
+    [filteredCoins, renderRow, fromSearch, toSearch]
+  );
+
+  /* ----- MAIN UI ----- */
+  return (
+    <div
+      style={{
+        maxWidth: "1150px",
+        margin: "0 auto",
+        padding: "22px",
+      }}
+    >
+      {/* Theme Toggle */}
+      <div style={{ textAlign: "right", marginBottom: "10px" }}>
+        <ThemeToggle />
+      </div>
+
+      {/* TOP ROW */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "flex-start",
+          gap: "32px",
+          flexWrap: "wrap",
+          marginTop: "10px",
+        }}
+      >
+        {/* AMOUNT INPUT */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <h3>AMOUNT</h3>
+          <input
+            value={amount}
+            placeholder="0.00"
+            inputMode="decimal"
+            onChange={(e) => {
+              const v = e.target.value;
+              if (
+                v === "" ||
+                /^[0-9]*\.?[0-9]*$/.test(v)
+              ) {
+                setAmount(v);
+              }
+            }}
+            style={{
+              width: "260px",
+              padding: "14px 16px",
+              borderRadius: "14px",
+              border: "1px solid var(--card-border)",
+              background: "var(--card-bg)",
+              fontSize: "18px",
+            }}
+          />
+
+          {(amount === "" || Number(amount) <= 0) && (
+            <div
+              style={{
+                color: "red",
+                marginTop: "6px",
+                fontSize: "14px",
+                fontWeight: 500,
+              }}
+            >
+              Enter a Number Greater than 0
+            </div>
+          )}
+        </div>
+
+        {/* FROM */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+          }}
+        >
+          <h3>FROM</h3>
+
+          <div
+            className="selector-box"
+            onClick={() => {
+              setOpenDropdown(openDropdown === "from" ? null : "from");
+              setFromSearch("");
+            }}
+          >
+            {fromCoin && (
+              <>
+                <img
+                  src={fromCoin.image}
+                  className="selector-img"
+                />
+                <div>
+                  <div className="selector-symbol">
+                    {fromCoin.symbol}
+                  </div>
+                  <div className="selector-name">
+                    {fromCoin.name}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {openDropdown === "from" && renderDropdown("from")}
+        </div>
+
+        {/* SWAP BUTTON */}
+        <div
+          onClick={handleSwap}
+          className="swap-circle"
+          style={{ marginTop: "38px" }}
+        >
+          <div className="swap-icon" />
+        </div>
+
+        {/* TO */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            position: "relative",
+          }}
+        >
+          <h3>TO</h3>
+          <div
+            className="selector-box"
+            onClick={() => {
+              setOpenDropdown(openDropdown === "to" ? null : "to");
+              setToSearch("");
+            }}
+          >
+            {toCoin && (
+              <>
+                <img
+                  src={toCoin.image}
+                  className="selector-img"
+                />
+                <div>
+                  <div className="selector-symbol">
+                    {toCoin.symbol}
+                  </div>
+                  <div className="selector-name">
+                    {toCoin.name}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {openDropdown === "to" && renderDropdown("to")}
+        </div>
+      </div>
+
+      {/* RESULT */}
+      {renderResult()}
+
+      {/* RANGE BUTTONS */}
+      <div style={{ textAlign: "center", marginTop: "30px" }}>
+        {["24H", "7D", "1M", "3M", "6M", "1Y"].map((r) => (
           <button
             key={r}
-            className={range === r ? "active" : ""}
             onClick={() => setRange(r)}
+            style={{
+              margin: "0 4px",
+              padding: "8px 14px",
+              borderRadius: "8px",
+              border: "1px solid var(--card-border)",
+              background:
+                range === r
+                  ? "var(--accent)"
+                  : "var(--card-bg)",
+              color:
+                range === r ? "#fff" : "var(--text)",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
           >
-            {r.toUpperCase()}
+            {r}
           </button>
         ))}
       </div>
 
-      {/* Chart */}
-      <div ref={chartRef} className="chart-container"></div>
-    </div>
-  );
-}
-
-/* -------------------- SELECTOR COMPONENT -------------------- */
-
-function Selector({
-  label,
-  selected,
-  setSelected,
-  coins,
-  fallbackImg,
-}: {
-  label: string;
-  selected: Coin;
-  setSelected: (c: Coin) => void;
-  coins: Coin[];
-  fallbackImg: (e: any) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-
-  const filtered = coins.filter(
-    (c) =>
-      c.name.toLowerCase().includes(query.toLowerCase()) ||
-      c.symbol.toLowerCase().includes(query.toLowerCase())
-  );
-
-  return (
-    <div className="selector-wrapper">
-      <label className="section-label">{label}</label>
-
-      <div className="selector-box" onClick={() => setOpen(!open)}>
-        <img className="selector-img" src={selected.image} onError={fallbackImg} />
-        <div className="selector-text">
-          <div className="selector-symbol">{selected.symbol}</div>
-          <div className="selector-name">{selected.name}</div>
-        </div>
-      </div>
-
-      {open && (
-        <div className="dropdown-panel">
-          <input
-            className="dropdown-search"
-            placeholder="Search…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-
-          {filtered.map((c) => (
-            <div
-              key={c.id}
-              className="dropdown-row"
-              onClick={() => {
-                setSelected(c);
-                setOpen(false);
-                setQuery("");
-              }}
-            >
-              <img className="selector-img" src={c.image} onError={fallbackImg} />
-              <div>
-                <div className="selector-symbol">{c.symbol}</div>
-                <div className="selector-name">{c.name}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* CHART */}
+      <div
+        ref={chartContainerRef}
+        style={{
+          width: "100%",
+          height: "400px",
+          marginTop: "35px",
+          borderRadius: "14px",
+          border: "1px solid var(--card-border)",
+          background: "var(--card-bg)",
+        }}
+      />
     </div>
   );
 }
