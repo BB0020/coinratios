@@ -13,6 +13,7 @@ interface Coin {
 
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
+  const [amount, setAmount] = useState(1);
 
   const [fromCoin, setFromCoin] = useState<Coin>({
     id: "bitcoin",
@@ -30,7 +31,6 @@ export default function Page() {
     type: "fiat",
   });
 
-  const [amount, setAmount] = useState(1);
   const [converted, setConverted] = useState<number | null>(null);
   const [reverseRate, setReverseRate] = useState<number | null>(null);
   const [range, setRange] = useState("24h");
@@ -39,21 +39,18 @@ export default function Page() {
   const chart = useRef<any>(null);
   const series = useRef<any>(null);
 
-  // Load all coins
+  // Load coins
   useEffect(() => {
-    async function loadCoins() {
-      const r = await fetch("/api/coins");
-      const data = await r.json();
-      setAllCoins(data);
-    }
-    loadCoins();
+    fetch("/api/coins")
+      .then((r) => r.json())
+      .then((data) => setAllCoins(data));
   }, []);
 
-  // Fetch price using ids=
+  // Fetch price
   const fetchPrice = useCallback(async () => {
     const url = `/api/price?ids=${fromCoin.id},${toCoin.id}`;
-    const r = await fetch(url);
-    const data = await r.json();
+    const res = await fetch(url);
+    const data = await res.json();
 
     const fromUSD = data[fromCoin.id];
     const toUSD = data[toCoin.id];
@@ -83,9 +80,9 @@ export default function Page() {
     "1y": 365,
   };
 
-  // Fetch history for both coins and compute ratio
+  // Fetch history and update chart
   const fetchHistory = useCallback(async () => {
-    const days = rangeDays[range] || 1;
+    const days = rangeDays[range];
 
     const [fromRes, toRes] = await Promise.all([
       fetch(`/api/history?id=${fromCoin.id}&days=${days}`).then((r) => r.json()),
@@ -94,25 +91,20 @@ export default function Page() {
 
     if (!chart.current) return;
 
-    // remove existing series
-    if (series.current) {
-      chart.current.removeSeries(series.current);
-    }
+    if (series.current) chart.current.removeSeries(series.current);
 
     const s = chart.current.addLineSeries({
       color: "#2962FF",
       lineWidth: 2,
     });
 
+    // Compute ratio
     const len = Math.min(fromRes.length, toRes.length);
     const points = [];
-
     for (let i = 0; i < len; i++) {
       const t1 = fromRes[i].time;
       const t2 = toRes[i].time;
-
-      // timestamps must be reasonably close
-      if (Math.abs(t1 - t2) < 6 * 3600 * 1000) {
+      if (Math.abs(t1 - t2) < 6 * 3600_000) {
         points.push({
           time: Math.floor(t1 / 1000),
           value: fromRes[i].value / toRes[i].value,
@@ -128,7 +120,7 @@ export default function Page() {
     fetchHistory();
   }, [fetchHistory]);
 
-  // Chart initialization
+  // Chart init
   useEffect(() => {
     if (!chartRef.current) return;
 
@@ -151,65 +143,64 @@ export default function Page() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // Swap coins
+  // Swap button handler
   const swapCoins = () => {
     const temp = fromCoin;
     setFromCoin(toCoin);
     setToCoin(temp);
   };
 
-  // Fallback for broken images
   const fallbackImg = (e: any) => {
     e.target.src = "/fallback.png";
   };
 
-  // UI
   return (
-    <div className="page-container">
+    <div className="main-wrapper">
 
-      <div className="row">
-        {/* Amount */}
-        <div className="input-group">
-          <label>AMOUNT</label>
+      {/* SINGLE ROW: Amount + From + Swap + To */}
+      <div className="row-flex">
+
+        {/* AMOUNT */}
+        <div className="amount-box">
+          <label className="section-label">AMOUNT</label>
           <input
+            className="amount-input"
             type="number"
             value={amount}
             onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
           />
         </div>
 
-        {/* From Coin */}
-        <div className="input-group">
-          <label>FROM</label>
-          <Dropdown
-            coins={allCoins}
-            selected={fromCoin}
-            setSelected={setFromCoin}
-            fallbackImg={fallbackImg}
-          />
+        {/* FROM SELECTOR */}
+        <Selector
+          label="FROM"
+          selected={fromCoin}
+          setSelected={setFromCoin}
+          coins={allCoins}
+          fallbackImg={fallbackImg}
+        />
+
+        {/* SWAP CIRCLE */}
+        <div className="swap-circle" onClick={swapCoins}>
+          <img src="/swap.svg" className="swap-icon" />
         </div>
 
-        {/* Swap Button */}
-        <button className="swap-btn" onClick={swapCoins}>⇆</button>
-
-        {/* To Coin */}
-        <div className="input-group">
-          <label>TO</label>
-          <Dropdown
-            coins={allCoins}
-            selected={toCoin}
-            setSelected={setToCoin}
-            fallbackImg={fallbackImg}
-          />
-        </div>
+        {/* TO SELECTOR */}
+        <Selector
+          label="TO"
+          selected={toCoin}
+          setSelected={setToCoin}
+          coins={allCoins}
+          fallbackImg={fallbackImg}
+        />
       </div>
 
-      {/* Conversion Header */}
+      {/* Conversion Title */}
       <div className="conversion-title">
         {amount} {fromCoin.symbol} → {toCoin.symbol}
       </div>
 
-      {/* Main Conversion */}
+      {/* Main Converted Output */}
       <div className="conversion-main">
         {converted !== null
           ? `${converted.toLocaleString(undefined, {
@@ -258,16 +249,19 @@ export default function Page() {
   );
 }
 
-// Dropdown Component
-function Dropdown({
-  coins,
+/* -------------------- SELECTOR COMPONENT -------------------- */
+
+function Selector({
+  label,
   selected,
   setSelected,
+  coins,
   fallbackImg,
 }: {
-  coins: Coin[];
+  label: string;
   selected: Coin;
   setSelected: (c: Coin) => void;
+  coins: Coin[];
   fallbackImg: (e: any) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -280,43 +274,43 @@ function Dropdown({
   );
 
   return (
-    <div className="dropdown">
-      <div className="dropdown-selected" onClick={() => setOpen(!open)}>
-        <img src={selected.image} onError={fallbackImg} />
-        <div>
-          <div className="symbol">{selected.symbol}</div>
-          <div className="name">{selected.name}</div>
+    <div className="selector-wrapper">
+      <label className="section-label">{label}</label>
+
+      <div className="selector-box" onClick={() => setOpen(!open)}>
+        <img className="selector-img" src={selected.image} onError={fallbackImg} />
+        <div className="selector-text">
+          <div className="selector-symbol">{selected.symbol}</div>
+          <div className="selector-name">{selected.name}</div>
         </div>
       </div>
 
       {open && (
-        <div className="dropdown-menu">
+        <div className="dropdown-panel">
           <input
             className="dropdown-search"
-            placeholder="Search..."
+            placeholder="Search…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          <div className="dropdown-list">
-            {filtered.map((c) => (
-              <div
-                key={c.id}
-                className="dropdown-item"
-                onClick={() => {
-                  setSelected(c);
-                  setOpen(false);
-                  setQuery("");
-                }}
-              >
-                <img src={c.image} onError={fallbackImg} />
-                <div>
-                  <div className="symbol">{c.symbol}</div>
-                  <div className="name">{c.name}</div>
-                </div>
+          {filtered.map((c) => (
+            <div
+              key={c.id}
+              className="dropdown-row"
+              onClick={() => {
+                setSelected(c);
+                setOpen(false);
+                setQuery("");
+              }}
+            >
+              <img className="selector-img" src={c.image} onError={fallbackImg} />
+              <div>
+                <div className="selector-symbol">{c.symbol}</div>
+                <div className="selector-name">{c.name}</div>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
