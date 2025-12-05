@@ -1,41 +1,16 @@
 import { NextResponse } from "next/server";
 
 const API_KEY = process.env.COINGECKO_API_KEY!;
-const CACHE_TTL = 10 * 1000; // 10 seconds
 
-let cache: Record<string, { data: any; ts: number }> = {};
-
+// List of fiat currencies we support
 const fiatIDs = [
-  "usd","eur","gbp","jpy","cad","aud","chf","cny","dkk","hkd","inr","krw",
-  "mxn","nok","nzd","sek","sgd","try","zar"
+  "usd","eur","gbp","jpy","cad","aud","chf","cny","dkk",
+  "hkd","inr","krw","mxn","nok","nzd","sek","sgd","try","zar"
 ];
 
-// Fetch crypto price in USD
-async function getCryptoPrice(id: string) {
-  const url =
-    `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`;
-
-  const data = await fetch(url, {
-    headers: { "x-cg-demo-api-key": API_KEY },
-    cache: "no-store"
-  }).then((r) => r.json());
-
-  return data[id]?.usd ?? null;
-}
-
-// Fetch fiat price in USD (via FX rate API)
-async function getFiatPrice(id: string) {
-  if (id === "usd") return 1;
-
-  const fx = await fetch(
-    `https://api.frankfurter.app/latest?from=USD&to=${id.toUpperCase()}`
-  ).then((r) => r.json());
-
-  const rate = fx?.rates?.[id.toUpperCase()];
-  if (!rate) return null;
-
-  return 1 / rate; // convert 1 unit of fiat → USD
-}
+// Cache to prevent rate limits + improve speed
+let cache: Record<string, { data: any; ts: number }> = {};
+const CACHE_TTL = 10 * 1000; // 10 seconds
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -46,53 +21,85 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing from/to" }, { status: 400 });
   }
 
-  const cacheKey = `${from}-${to}`;
+  const key = `${from}_${to}`;
   const now = Date.now();
 
-  // Cache hit
-  if (cache[cacheKey] && now - cache[cacheKey].ts < CACHE_TTL) {
-    return NextResponse.json(cache[cacheKey].data);
+  // Use cache if available
+  if (cache[key] && now - cache[key].ts < CACHE_TTL) {
+    return NextResponse.json(cache[key].data);
   }
 
-  const fromIsFiat = fiatIDs.includes(from.toLowerCase());
-  const toIsFiat = fiatIDs.includes(to.toLowerCase());
+  const isFromFiat = fiatIDs.includes(from.toLowerCase());
+  const isToFiat = fiatIDs.includes(to.toLowerCase());
 
-  let fromUSD: number | null = null;
-  let toUSD: number | null = null;
+  let resultPrice = 0;
 
-  // ------- Fetch FROM price -------
-  if (fromIsFiat) {
-    fromUSD = await getFiatPrice(from.toLowerCase());
+  // -----------------------------------------------------
+  // CASE 1: FROM CRYPTO → fetch USD price
+  // -----------------------------------------------------
+  let fromUSD = 0;
+  if (!isFromFiat) {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${from}&vs_currencies=usd`,
+      {
+        headers: { "x-cg-demo-api-key": API_KEY },
+        cache: "no-store"
+      }
+    ).then(r => r.json());
+
+    fromUSD = r[from]?.usd ?? 0;
   } else {
-    fromUSD = await getCryptoPrice(from.toLowerCase());
+    // Fiat case (FROM)
+    if (from.toLowerCase() === "usd") {
+      fromUSD = 1;
+    } else {
+      const fx = await fetch(
+        `https://api.frankfurter.app/latest?from=${from.toUpperCase()}&to=USD`
+      ).then(r => r.json());
+
+      fromUSD = fx.rates?.USD ?? 0;
+    }
   }
 
-  // ------- Fetch TO price -------
-  if (toIsFiat) {
-    toUSD = await getFiatPrice(to.toLowerCase());
+  // -----------------------------------------------------
+  // CASE 2: TO CRYPTO → fetch USD price
+  // -----------------------------------------------------
+  let toUSD = 0;
+  if (!isToFiat) {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${to}&vs_currencies=usd`,
+      {
+        headers: { "x-cg-demo-api-key": API_KEY },
+        cache: "no-store"
+      }
+    ).then(r => r.json());
+
+    toUSD = r[to]?.usd ?? 1;
   } else {
-    toUSD = await getCryptoPrice(to.toLowerCase());
+    // Fiat case (TO)
+    if (to.toLowerCase() === "usd") {
+      toUSD = 1;
+    } else {
+      const fx = await fetch(
+        `https://api.frankfurter.app/latest?from=${to.toUpperCase()}&to=USD`
+      ).then(r => r.json());
+
+      // If 1 USD = x EUR, then 1 EUR = 1/x USD
+      const rate = fx.rates?.USD;
+      toUSD = rate ? 1 / rate : 0;
+    }
   }
 
-  if (fromUSD === null || toUSD === null) {
-    return NextResponse.json({ error: "Price not available" }, { status: 400 });
-  }
+  // Avoid divide-by-zero
+  if (toUSD === 0) toUSD = 1;
 
-  // ------- Compute ratios -------
-  const price = fromUSD / toUSD;       // 1 FROM = X TO
-  const inverse = toUSD / fromUSD;     // 1 TO = X FROM
+  // Final conversion rate
+  resultPrice = fromUSD / toUSD;
 
-  const result = {
-    from,
-    to,
-    price,
-    inverse,
-    fromUSD,
-    toUSD,
-  };
+  const payload = { price: resultPrice };
 
-  // Cache it
-  cache[cacheKey] = { data: result, ts: now };
+  // Save to cache
+  cache[key] = { data: payload, ts: now };
 
-  return NextResponse.json(result);
+  return NextResponse.json(payload);
 }
