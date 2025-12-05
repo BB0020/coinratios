@@ -3,47 +3,47 @@ import { NextResponse } from "next/server";
 const API_KEY = process.env.COINGECKO_API_KEY!;
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-// In-memory cache
 let cache: { data: any[] | null; ts: number } = {
   data: null,
   ts: 0,
 };
 
-// Small wait helper
 function delay(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-// Fetch a single page of CoinGecko markets
-async function fetchPage(page: number, retries = 3) {
+// Fetch a market-cap page reliably (250 coins per page)
+async function fetchPageStable(page: number) {
   const url =
     "https://api.coingecko.com/api/v3/coins/markets" +
     "?vs_currency=usd&order=market_cap_desc&per_page=250&page=" +
     page;
 
-  for (let attempt = 0; attempt < retries; attempt++) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       const res = await fetch(url, {
         headers: { "x-cg-demo-api-key": API_KEY },
-        cache: "no-store"
+        cache: "no-store",
       });
 
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) return data;
+        if (Array.isArray(data) && data.length > 0) {
+          console.log(`✓ Page ${page} loaded (${data.length} coins)`);
+          return data;
+        }
       }
+    } catch {}
 
-    } catch (err) {
-      // ignore & retry
-    }
-
-    await delay(400 + attempt * 300);
+    console.warn(`Retry ${attempt}/5 for page ${page}…`);
+    await delay(300 * attempt);
   }
 
+  console.error(`✗ Page ${page} failed after all retries`);
   return [];
 }
 
-// FULL FIAT LIST (Correct + FlagCDN SVGs)
+// FULL FIAT LIST
 const fiatList = [
   { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
   { id: "brl", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
@@ -66,7 +66,6 @@ const fiatList = [
   { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
 ];
 
-// USD is always first
 const USD = {
   id: "usd",
   symbol: "USD",
@@ -75,28 +74,51 @@ const USD = {
   type: "fiat",
 };
 
+// Missing coins you want guaranteed in dropdown
+const extraIds = ["metacade"]; // <-- expand this list anytime
+
+async function fetchExtraCoin(id: string) {
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/${id}`;
+    const res = await fetch(url, {
+      headers: { "x-cg-demo-api-key": API_KEY },
+      cache: "no-store",
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+
+    return {
+      id: data.id,
+      symbol: data.symbol.toUpperCase(),
+      name: data.name,
+      image: data.image?.small ?? "",
+      type: "crypto",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   const now = Date.now();
 
-  // Serve from cache
   if (cache.data && now - cache.ts < CACHE_TTL) {
     return NextResponse.json(cache.data);
   }
 
   const all: any[] = [];
 
-  // Pull crypto pages 1 → 5
+  // Load top 1250 (5 pages)
   for (let page = 1; page <= 5; page++) {
-    const pageData = await fetchPage(page);
-
-    if (pageData.length === 0) break; // no more pages or throttled
-
+    const pageData = await fetchPageStable(page);
     all.push(...pageData);
-
-    await delay(200); // spacing to avoid rate-limits
+    await delay(200);
   }
 
-  // Transform into normalized crypto objects
+  console.log("Cryptos loaded:", all.length);
+
   const cryptos = all.map((c) => ({
     id: c.id,
     symbol: c.symbol.toUpperCase(),
@@ -105,11 +127,23 @@ export async function GET() {
     type: "crypto",
   }));
 
-  // Final ordering: USD → other fiats → cryptos
-  const result = [USD, ...fiatList, ...cryptos];
+  // Fetch missing low-cap coins (e.g., MCADE)
+  const extraCoins: any[] = [];
 
-  // Cache result
-  cache = { data: result, ts: now };
+  for (const id of extraIds) {
+    if (!cryptos.some((c) => c.id === id)) {
+      const coin = await fetchExtraCoin(id);
+      if (coin) {
+        console.log("Added extra coin:", coin.id);
+        extraCoins.push(coin);
+      }
+    }
+  }
 
-  return NextResponse.json(result);
+  // Final combined list
+  const finalList = [USD, ...fiatList, ...cryptos, ...extraCoins];
+
+  cache = { data: finalList, ts: now };
+
+  return NextResponse.json(finalList);
 }
