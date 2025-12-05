@@ -1,105 +1,61 @@
 import { NextResponse } from "next/server";
 
-const API_KEY = process.env.COINGECKO_API_KEY!;
+export const dynamic = "force-dynamic";
 
-// List of fiat currencies we support
-const fiatIDs = [
-  "usd","eur","gbp","jpy","cad","aud","chf","cny","dkk",
-  "hkd","inr","krw","mxn","nok","nzd","sek","sgd","try","zar"
+const FIATS = [
+  "usd","eur","gbp","jpy","cad","aud","chf","cny",
+  "hkd","inr","nzd","sek","sgd","zar"
 ];
-
-// Cache to prevent rate limits + improve speed
-let cache: Record<string, { data: any; ts: number }> = {};
-const CACHE_TTL = 10 * 1000; // 10 seconds
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const from = url.searchParams.get("from");
-  const to = url.searchParams.get("to");
+  const ids = url.searchParams.get("ids");
 
-  if (!from || !to) {
-    return NextResponse.json({ error: "Missing from/to" }, { status: 400 });
+  if (!ids) {
+    return NextResponse.json({ error: "missing_ids" }, { status: 400 });
   }
 
-  const key = `${from}_${to}`;
-  const now = Date.now();
+  const list = ids.split(",").map((x) => x.toLowerCase());
+  const cryptos = list.filter((c) => !FIATS.includes(c));
+  const fiats = list.filter((f) => FIATS.includes(f));
 
-  // Use cache if available
-  if (cache[key] && now - cache[key].ts < CACHE_TTL) {
-    return NextResponse.json(cache[key].data);
-  }
+  const result: Record<string, number> = {};
 
-  const isFromFiat = fiatIDs.includes(from.toLowerCase());
-  const isToFiat = fiatIDs.includes(to.toLowerCase());
+  // --------------------------------------------------
+  // FETCH CRYPTO → USD
+  // --------------------------------------------------
+  if (cryptos.length > 0) {
+    const cgURL = 
+      "https://api.coingecko.com/api/v3/simple/price?ids=" +
+      cryptos.join(",") +
+      "&vs_currencies=usd";
 
-  let resultPrice = 0;
+    const r = await fetch(cgURL, { cache: "no-store" }).then((r) => r.json());
 
-  // -----------------------------------------------------
-  // CASE 1: FROM CRYPTO → fetch USD price
-  // -----------------------------------------------------
-  let fromUSD = 0;
-  if (!isFromFiat) {
-    const r = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${from}&vs_currencies=usd`,
-      {
-        headers: { "x-cg-demo-api-key": API_KEY },
-        cache: "no-store"
-      }
-    ).then(r => r.json());
-
-    fromUSD = r[from]?.usd ?? 0;
-  } else {
-    // Fiat case (FROM)
-    if (from.toLowerCase() === "usd") {
-      fromUSD = 1;
-    } else {
-      const fx = await fetch(
-        `https://api.frankfurter.app/latest?from=${from.toUpperCase()}&to=USD`
-      ).then(r => r.json());
-
-      fromUSD = fx.rates?.USD ?? 0;
+    for (const id of cryptos) {
+      result[id] = r[id]?.usd ?? 0;
     }
   }
 
-  // -----------------------------------------------------
-  // CASE 2: TO CRYPTO → fetch USD price
-  // -----------------------------------------------------
-  let toUSD = 0;
-  if (!isToFiat) {
-    const r = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${to}&vs_currencies=usd`,
-      {
-        headers: { "x-cg-demo-api-key": API_KEY },
-        cache: "no-store"
+  // --------------------------------------------------
+  // FETCH FIAT → USD
+  // --------------------------------------------------
+  if (fiats.length > 0) {
+    const upper = fiats.map((x) => x.toUpperCase()).join(",");
+
+    const fx = await fetch(
+      "https://api.frankfurter.app/latest?from=USD&to=" + upper
+    ).then((r) => r.json());
+
+    for (const id of fiats) {
+      if (id === "usd") {
+        result[id] = 1;
+      } else {
+        const rate = fx.rates?.[id.toUpperCase()];
+        result[id] = rate ? 1 / rate : 0;
       }
-    ).then(r => r.json());
-
-    toUSD = r[to]?.usd ?? 1;
-  } else {
-    // Fiat case (TO)
-    if (to.toLowerCase() === "usd") {
-      toUSD = 1;
-    } else {
-      const fx = await fetch(
-        `https://api.frankfurter.app/latest?from=${to.toUpperCase()}&to=USD`
-      ).then(r => r.json());
-
-      // If 1 USD = x EUR, then 1 EUR = 1/x USD
-      const rate = fx.rates?.USD;
-      toUSD = rate ? 1 / rate : 0;
     }
   }
 
-  // Avoid divide-by-zero
-  if (toUSD === 0) toUSD = 1;
-
-  // Final conversion rate
-  resultPrice = fromUSD / toUSD;
-
-  const payload = { price: resultPrice };
-
-  // Save to cache
-  cache[key] = { data: payload, ts: now };
-
-  return NextResponse.json(payload);
+  return NextResponse.json(result);
 }
