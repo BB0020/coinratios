@@ -1,26 +1,34 @@
 import { NextResponse } from "next/server";
 
+// ====== CONFIG ======
 const API_KEY = process.env.COINGECKO_API_KEY!;
-const CACHE_TTL = 24 * 60 * 60 * 1000;
-
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 let cache = { data: null as any[] | null, ts: 0 };
 
+// ====== HELPERS ======
 function delay(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-// Force-include coins (even if not in top 1250)
-const FORCE_COINS = [
+type ForcedCoin = {
+  id: string;
+  symbol: string;
+  name: string;
+  fallbackImage: string;
+};
+
+// ====== ALWAYS-INCLUDE COINS ======
+const FORCE_COINS: ForcedCoin[] = [
   {
     id: "metacade",
     symbol: "MCADE",
     name: "Metacade",
     fallbackImage:
-      "https://assets.coingecko.com/coins/images/30161/small/mcade.png",
+      "https://coin-images.coingecko.com/coins/images/29764/small/Square_Profile_Photo_1080_x_1080px.png",
   },
 ];
 
-// ---- Fiat list ----
+// ====== FIAT LIST ======
 const fiatList = [
   { id: "usd", symbol: "USD", name: "US Dollar", image: "https://flagcdn.com/us.svg", type: "fiat" },
   { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
@@ -44,12 +52,11 @@ const fiatList = [
   { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
 ];
 
-// ---- Fetch Top Coins ----
+// ====== FETCH PAGE OF MARKET CAP LIST ======
 async function fetchPage(page: number) {
   const url =
     "https://api.coingecko.com/api/v3/coins/markets" +
-    "?vs_currency=usd&order=market_cap_desc&per_page=250&page=" +
-    page;
+    `?vs_currency=usd&order=market_cap_desc&per_page=250&page=${page}`;
 
   try {
     const res = await fetch(url, {
@@ -58,21 +65,13 @@ async function fetchPage(page: number) {
     });
 
     if (!res.ok) return [];
-
     return await res.json();
-  } catch (err) {
+  } catch {
     return [];
   }
 }
 
-type ForcedCoin = {
-  id: string;
-  symbol: string;
-  name: string;
-  fallbackImage: string;
-};
-
-// ---- Fetch Forced Coins ----
+// ====== FETCH FORCED COIN (MCADE) ======
 async function fetchForced(coin: ForcedCoin) {
   const url = `https://api.coingecko.com/api/v3/coins/${coin.id}`;
 
@@ -83,7 +82,7 @@ async function fetchForced(coin: ForcedCoin) {
     });
 
     if (!res.ok) {
-      console.log("Fallback used for:", coin.id);
+      console.log("FALLBACK used for:", coin.id);
       return {
         id: coin.id,
         symbol: coin.symbol,
@@ -94,16 +93,21 @@ async function fetchForced(coin: ForcedCoin) {
     }
 
     const data = await res.json();
+    const image =
+      data?.image?.small ??
+      data?.image?.thumb ??
+      data?.image?.large ??
+      coin.fallbackImage;
 
     return {
       id: data.id,
       symbol: data.symbol.toUpperCase(),
       name: data.name,
-      image: data.image?.small ?? coin.fallbackImage,
+      image,
       type: "crypto",
     };
   } catch (err) {
-    console.log("Error fetching forced coin", coin.id, err);
+    console.log("ERROR fetching forced coin:", coin.id, err);
     return {
       id: coin.id,
       symbol: coin.symbol,
@@ -114,19 +118,20 @@ async function fetchForced(coin: ForcedCoin) {
   }
 }
 
-
+// ====== API HANDLER ======
 export async function GET() {
   const now = Date.now();
 
+  // Serve cached version
   if (cache.data && now - cache.ts < CACHE_TTL) {
     return NextResponse.json(cache.data);
   }
 
-  // Fetch top 1250 crypto coins
+  // Fetch 5 pages → 1250 coins
   const pages = [];
   for (let p = 1; p <= 5; p++) {
     pages.push(await fetchPage(p));
-    await delay(150);
+    await delay(120);
   }
 
   const flat = pages.flat();
@@ -139,7 +144,7 @@ export async function GET() {
     type: "crypto",
   }));
 
-  // Add forced coins if missing
+  // Add forced coins like MCADE
   const forcedResults = [];
   for (const coin of FORCE_COINS) {
     if (!cryptos.some((x) => x.id === coin.id)) {
@@ -148,8 +153,10 @@ export async function GET() {
     }
   }
 
+  // Final list: Fiat → Cryptos → Forced coins
   const finalList = [...fiatList, ...cryptos, ...forcedResults];
 
   cache = { data: finalList, ts: now };
+
   return NextResponse.json(finalList);
 }
