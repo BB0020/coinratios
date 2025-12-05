@@ -4,9 +4,6 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { createChart } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
-/* ------------------------------------------------------
-   TYPES
------------------------------------------------------- */
 interface Coin {
   id: string;
   symbol: string;
@@ -20,9 +17,6 @@ interface PricePoint {
   value: number;
 }
 
-/* ------------------------------------------------------
-   COMPONENT
------------------------------------------------------- */
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
@@ -42,32 +36,31 @@ export default function Page() {
   const seriesRef = useRef<any>(null);
 
   const lastValidData = useRef<PricePoint[]>([]);
+
   const fromPanelRef = useRef<HTMLDivElement | null>(null);
   const toPanelRef = useRef<HTMLDivElement | null>(null);
 
-  /* ------------------------------------------------------
-     LOAD COINS
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     LOAD COIN LIST (FIATS + 1250 CRYPTOS)
+  -------------------------------------------------- */
   useEffect(() => {
     async function loadCoins() {
-      const r = await fetch("/api/coins");
-      const data = await r.json();
+      const response = await fetch("/api/coins");
+      const data = await response.json();
 
       setAllCoins(data);
 
-      const btc = data.find((c: Coin) => c.id === "bitcoin");
       const usd = data.find((c: Coin) => c.id === "usd");
+      const btc = data.find((c: Coin) => c.id === "bitcoin");
 
       setFromCoin(btc || data[0]);
       setToCoin(usd || data[1]);
     }
-
     loadCoins();
   }, []);
-
-  /* ------------------------------------------------------
+  /* --------------------------------------------------
      CLICK OUTSIDE DROPDOWN
-  ------------------------------------------------------ */
+  -------------------------------------------------- */
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (
@@ -93,9 +86,9 @@ export default function Page() {
     return () => document.removeEventListener("mousedown", handler);
   }, [openDropdown]);
 
-  /* ------------------------------------------------------
-     FILTER
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     FILTER COINS BY SEARCH
+  -------------------------------------------------- */
   const filteredCoins = useCallback(
     (query: string) => {
       if (!query) return allCoins;
@@ -109,27 +102,27 @@ export default function Page() {
     [allCoins]
   );
 
-  /* ------------------------------------------------------
-     SWAP
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     SWAP TOKENS
+  -------------------------------------------------- */
   const handleSwap = () => {
     if (!fromCoin || !toCoin) return;
     setFromCoin(toCoin);
     setToCoin(fromCoin);
   };
 
-  /* ------------------------------------------------------
-     PRICE FETCH (via IDs)
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     FETCH PRICE DATA
+  -------------------------------------------------- */
   const fetchPrices = useCallback(async (ids: string[]) => {
     const q = ids.join(",");
     const r = await fetch(`/api/price?ids=${q}`);
     return await r.json();
   }, []);
 
-  /* ------------------------------------------------------
+  /* --------------------------------------------------
      COMPUTE CONVERSION
-  ------------------------------------------------------ */
+  -------------------------------------------------- */
   const computeResult = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
 
@@ -139,7 +132,7 @@ export default function Page() {
       return;
     }
 
-    const ids = [fromCoin.id, toCoin.id];   // IMPORTANT FIX
+    const ids = [fromCoin.id, toCoin.id];
 
     const prices = await fetchPrices(ids);
 
@@ -166,10 +159,9 @@ export default function Page() {
       clearTimeout(t);
     };
   }, [fromCoin, toCoin, amount, computeResult]);
-
-  /* ------------------------------------------------------
+  /* --------------------------------------------------
      RANGE → DAYS
-  ------------------------------------------------------ */
+  -------------------------------------------------- */
   function rangeToDays(r: string) {
     switch (r) {
       case "24H": return 1;
@@ -182,9 +174,9 @@ export default function Page() {
     }
   }
 
-  /* ------------------------------------------------------
-     HISTORY
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     FETCH HISTORY (merged ratio history)
+  -------------------------------------------------- */
   const fetchHistory = useCallback(async (coin: Coin, days: number) => {
     const r = await fetch(`/api/history?id=${coin.id}&days=${days}`);
     return await r.json();
@@ -199,8 +191,9 @@ export default function Page() {
         j < b.length - 1 &&
         Math.abs(b[j + 1].time - a[i].time) <
         Math.abs(b[j].time - a[i].time)
-      )
+      ) {
         j++;
+      }
 
       out.push({
         time: a[i].time,
@@ -221,16 +214,18 @@ export default function Page() {
       fetchHistory(toCoin, days),
     ]);
 
-    if (!fromHist.length || !toHist.length) return lastValidData.current;
+    if (!fromHist.length || !toHist.length) {
+      return lastValidData.current;
+    }
 
     const merged = mergeNearest(fromHist, toHist, (a, b) => a / b);
     lastValidData.current = merged;
     return merged;
   }, [fromCoin, toCoin, range, fetchHistory]);
 
-  /* ------------------------------------------------------
+  /* --------------------------------------------------
      INIT CHART
-  ------------------------------------------------------ */
+  -------------------------------------------------- */
   useEffect(() => {
     if (!chartContainerRef.current || chartRef.current) return;
 
@@ -239,10 +234,10 @@ export default function Page() {
 
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 390,
+      height: 380,
       layout: {
         background: { color: isDark ? "#111" : "#fff" },
-        textColor: isDark ? "#eee" : "#1a1a1a",
+        textColor: isDark ? "#eee" : "#222",
       },
       grid: {
         vertLines: { color: isDark ? "#2a2a2a" : "#e3e3e3" },
@@ -259,31 +254,29 @@ export default function Page() {
     chartRef.current = chart;
     seriesRef.current = series;
 
-    const handleResize = () => chart.resize(container.clientWidth, 390);
-    window.addEventListener("resize", handleResize);
+    const resize = () => chart.resize(container.clientWidth, 380);
+    window.addEventListener("resize", resize);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", resize);
       chart.remove();
     };
   }, []);
-
-  /* ------------------------------------------------------
-     UPDATE CHART (INSTANT + BACKGROUND)
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     UPDATE CHART
+  -------------------------------------------------- */
   useEffect(() => {
     let active = true;
 
-    async function updateChart() {
+    async function update() {
       if (!chartRef.current || !seriesRef.current) return;
 
-      // show last data instantly
+      // Show previous data instantly
       if (lastValidData.current.length > 0) {
         seriesRef.current.setData(lastValidData.current);
         chartRef.current.timeScale().fitContent();
       }
 
-      // fetch fresh
       const fresh = await computeHistory();
       if (!active) return;
 
@@ -291,25 +284,20 @@ export default function Page() {
       chartRef.current.timeScale().fitContent();
     }
 
-    updateChart();
-    return () => {
-      active = false;
-    };
+    update();
+    return () => { active = false; };
   }, [computeHistory]);
 
-  /* ------------------------------------------------------
-     RESULT BLOCK (FIXED)
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     RESULT BLOCK
+  -------------------------------------------------- */
   const renderResult = () => {
     if (!fromCoin || !toCoin) return null;
 
-    // First-load behavior
     if (result === null) {
       return (
         <div style={{ textAlign: "center", marginTop: "40px" }}>
-          <div style={{ fontSize: "22px", opacity: 0.65 }}>
-            Loading price…
-          </div>
+          <div style={{ fontSize: "22px", opacity: 0.65 }}>Loading price…</div>
         </div>
       );
     }
@@ -323,7 +311,7 @@ export default function Page() {
           1 {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
-        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
+        <div style={{ fontSize: "56px", fontWeight: 700, marginTop: "10px" }}>
           {displayed.toLocaleString(undefined, {
             maximumFractionDigits: 8,
           })}{" "}
@@ -332,9 +320,7 @@ export default function Page() {
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} ={" "}
-          {baseRate.toLocaleString(undefined, {
-            maximumFractionDigits: 8,
-          })}{" "}
+          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} ={" "}
@@ -347,9 +333,9 @@ export default function Page() {
     );
   };
 
-  /* ------------------------------------------------------
-     DROPDOWN ROW
-  ------------------------------------------------------ */
+  /* --------------------------------------------------
+     RENDER DROPDOWNS
+  -------------------------------------------------- */
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
       const disabled =
@@ -387,9 +373,6 @@ export default function Page() {
     [fromCoin, toCoin]
   );
 
-  /* ------------------------------------------------------
-     DROPDOWN PANEL
-  ------------------------------------------------------ */
   const renderDropdown = useCallback(
     (type: "from" | "to") => {
       const search = type === "from" ? fromSearch : toSearch;
@@ -412,39 +395,9 @@ export default function Page() {
     [filteredCoins, renderRow, fromSearch, toSearch]
   );
 
-  /* ------------------------------------------------------
-     RANGE BUTTONS
-  ------------------------------------------------------ */
-  const RangeButtons = () => {
-    const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "35px" }}>
-        {ranges.map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            style={{
-              margin: "0 4px",
-              padding: "8px 14px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: range === r ? "var(--accent)" : "var(--card-bg)",
-              color: range === r ? "#fff" : "var(--text)",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  /* ------------------------------------------------------
+  /* --------------------------------------------------
      MAIN UI
-  ------------------------------------------------------ */
+  -------------------------------------------------- */
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
       <div style={{ textAlign: "right", marginBottom: "10px" }}>
@@ -524,7 +477,7 @@ export default function Page() {
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* SWAP */}
+        {/* SWAP BUTTON */}
         <div onClick={handleSwap} style={{ marginTop: "38px" }} className="swap-circle">
           <div className="swap-icon" />
         </div>
@@ -555,10 +508,28 @@ export default function Page() {
         </div>
       </div>
 
-      {/* RESULT */}
       {renderResult()}
 
-      <RangeButtons />
+      <div style={{ textAlign: "center", marginTop: "30px" }}>
+        {["24H", "7D", "1M", "3M", "6M", "1Y"].map((r) => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            style={{
+              margin: "0 4px",
+              padding: "8px 14px",
+              borderRadius: "8px",
+              border: "1px solid var(--card-border)",
+              background: range === r ? "var(--accent)" : "var(--card-bg)",
+              color: range === r ? "#fff" : "var(--text)",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
 
       <div
         ref={chartContainerRef}

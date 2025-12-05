@@ -1,18 +1,49 @@
 import { NextResponse } from "next/server";
 
-// ---------------------------------------------
-// GLOBAL CACHE (lives per Vercel region)
-// ---------------------------------------------
-const cache: {
-  data: any | null;
-  ts: number;
-} = { data: null, ts: 0 };
-
+const API_KEY = process.env.COINGECKO_API_KEY!;
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-// ---------------------------------------------
-// FIAT LIST + USD
-// ---------------------------------------------
+// In-memory cache
+let cache: { data: any[] | null; ts: number } = {
+  data: null,
+  ts: 0,
+};
+
+// Small wait helper
+function delay(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+// Fetch a single page of CoinGecko markets
+async function fetchPage(page: number, retries = 3) {
+  const url =
+    "https://api.coingecko.com/api/v3/coins/markets" +
+    "?vs_currency=usd&order=market_cap_desc&per_page=250&page=" +
+    page;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "x-cg-demo-api-key": API_KEY },
+        cache: "no-store"
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) return data;
+      }
+
+    } catch (err) {
+      // ignore & retry
+    }
+
+    await delay(400 + attempt * 300);
+  }
+
+  return [];
+}
+
+// FULL FIAT LIST (Correct + FlagCDN SVGs)
 const fiatList = [
   { id: "aud", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
   { id: "brl", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
@@ -35,38 +66,38 @@ const fiatList = [
   { id: "zar", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
 ];
 
-const USD = { id: "usd", symbol: "USD", name: "US Dollar", image: "https://flagcdn.com/us.svg", type: "fiat" };
+// USD is always first
+const USD = {
+  id: "usd",
+  symbol: "USD",
+  name: "US Dollar",
+  image: "https://flagcdn.com/us.svg",
+  type: "fiat",
+};
 
-// ---------------------------------------------
-// FETCH 1250 CRYPTOS
-// ---------------------------------------------
-async function fetchCryptoPages() {
-  const pages = [1, 2, 3, 4, 5];
-  const promises = pages.map((p) =>
-    fetch(
-      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=${p}`
-    ).then((r) => r.json())
-  );
-
-  const results = await Promise.all(promises);
-  return results.flat();
-}
-
-// ---------------------------------------------
-// ROUTE HANDLER
-// ---------------------------------------------
 export async function GET() {
   const now = Date.now();
 
-  // serve from cache
+  // Serve from cache
   if (cache.data && now - cache.ts < CACHE_TTL) {
     return NextResponse.json(cache.data);
   }
 
-  // fetch new data
-  const cryptosRaw = await fetchCryptoPages();
+  const all: any[] = [];
 
-  const cryptos = cryptosRaw.map((c: any) => ({
+  // Pull crypto pages 1 → 5
+  for (let page = 1; page <= 5; page++) {
+    const pageData = await fetchPage(page);
+
+    if (pageData.length === 0) break; // no more pages or throttled
+
+    all.push(...pageData);
+
+    await delay(200); // spacing to avoid rate-limits
+  }
+
+  // Transform into normalized crypto objects
+  const cryptos = all.map((c) => ({
     id: c.id,
     symbol: c.symbol.toUpperCase(),
     name: c.name,
@@ -74,14 +105,11 @@ export async function GET() {
     type: "crypto",
   }));
 
-  // alphabetical fiat
-  const sortedFiats = [...fiatList].sort((a, b) => a.symbol.localeCompare(b.symbol));
+  // Final ordering: USD → other fiats → cryptos
+  const result = [USD, ...fiatList, ...cryptos];
 
-  // merge in correct order (USD first → cryptos → fiat)
-  const finalList = [USD, ...cryptos, ...sortedFiats];
+  // Cache result
+  cache = { data: result, ts: now };
 
-  cache.data = finalList;
-  cache.ts = now;
-
-  return NextResponse.json(finalList);
+  return NextResponse.json(result);
 }

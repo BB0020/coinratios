@@ -1,81 +1,65 @@
 import { NextResponse } from "next/server";
 
-const cache: Record<
-  string,
-  { data: any; ts: number }
-> = {};
+const API_KEY = process.env.COINGECKO_API_KEY!;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+let cache: Record<string, { data: any; ts: number }> = {};
 
-function buildKey(id: string, days: string) {
-  return `${id}-${days}`;
+function delay(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+async function fetchHistory(id: string, days: number, retries = 4) {
+  const url =
+    "https://api.coingecko.com/api/v3/coins/" +
+    id +
+    "/market_chart?vs_currency=usd&days=" +
+    days;
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url, {
+        headers: { "x-cg-demo-api-key": API_KEY },
+        cache: "no-store",
+      });
+      const data = await res.json();
+
+      if (Array.isArray(data.prices) && data.prices.length > 0) {
+        return data.prices.map((p: number[]) => ({
+          time: Math.floor(p[0] / 1000), // seconds
+          value: p[1],
+        }));
+      }
+    } catch {}
+
+    await delay(300 + i * 300);
+  }
+
+  return [];
 }
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
-  const days = url.searchParams.get("days");
+  const days = Number(url.searchParams.get("days") || 1);
 
-  if (!id || !days) {
-    return NextResponse.json({ error: "Missing id or days" }, { status: 400 });
-  }
+  if (!id) return NextResponse.json([]);
 
-  const key = buildKey(id, days);
+  const key = `${id}-${days}`;
+  const now = Date.now();
 
-  if (cache[key] && Date.now() - cache[key].ts < CACHE_TTL) {
+  if (cache[key] && now - cache[key].ts < CACHE_TTL) {
     return NextResponse.json(cache[key].data);
   }
 
-  let out: { time: number; value: number }[] = [];
+  const data = await fetchHistory(id, days);
 
-  const isFiat = !id.includes("-") && id.length <= 3 && id !== "bitcoin";
-
-  // ---- Fiat history ------------------------------------
-  if (isFiat) {
-    if (id.toUpperCase() === "USD") {
-      const now = Date.now();
-      const arr = [];
-      for (let i = Number(days); i >= 0; i--) {
-        const t = now - i * 86400000;
-        arr.push({ time: Math.floor(t / 1000), value: 1 });
-      }
-      out = arr;
-    } else {
-      const now = new Date();
-      const start = new Date(now.getTime() - Number(days) * 86400000);
-      const startISO = start.toISOString().slice(0, 10);
-      const endISO = now.toISOString().slice(0, 10);
-
-      const fx = await fetch(
-        `https://api.frankfurter.app/${startISO}..${endISO}?from=USD&to=${id.toUpperCase()}`
-      ).then((r) => r.json());
-
-      out = Object.keys(fx.rates).map((d) => {
-        const usdToFiat = fx.rates[d][id.toUpperCase()];
-        return {
-          time: Math.floor(new Date(d).getTime() / 1000),
-          value: 1 / usdToFiat,
-        };
-      });
-    }
+  // If CoinGecko returned nothing, fall back to cached data
+  if (data.length === 0 && cache[key]) {
+    return NextResponse.json(cache[key].data);
   }
 
-  // ---- Crypto history -----------------------------------
-  if (!isFiat) {
-    const cg = await fetch(
-      `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
-    ).then((r) => r.json());
+  cache[key] = { data, ts: now };
 
-    out =
-      cg.prices?.map((p: any) => ({
-        time: Math.floor(p[0] / 1000),
-        value: p[1],
-      })) ?? [];
-  }
-
-  out.sort((a, b) => a.time - b.time);
-
-  cache[key] = { data: out, ts: Date.now() };
-
-  return NextResponse.json(out);
+  return NextResponse.json(data);
 }
