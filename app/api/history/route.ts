@@ -6,13 +6,14 @@ interface Point {
   value: number;
 }
 
+// Detect fiat (USD, EUR, GBP, CAD, etc.)
 const isFiat = (id: string) => /^[A-Z]{3,5}$/.test(id);
 
-// Parse YYYY-MM-DD → UTC midnight timestamp
+// Parse YYYY-MM-DD safely into UTC midnight timestamp
 const parseDay = (day: string) =>
   Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
 
-// Build UTC date range for Frankfurter
+// Build UTC start/end dates for Frankfurter
 function buildDateRange(days: number) {
   const now = new Date();
 
@@ -34,7 +35,7 @@ function buildDateRange(days: number) {
   };
 }
 
-// Smooth fiat gaps (Google Finance style)
+// Smooth fiat (weekends/holidays) → Google Finance style forward-fill
 function smoothFiat(points: Point[], days: number): Point[] {
   if (!points.length) return [];
 
@@ -47,17 +48,14 @@ function smoothFiat(points: Point[], days: number): Point[] {
 
   const out: Point[] = [];
   const map = new Map(points.map(p => [p.time, p.value]));
-
   let last = points[0].value;
 
   for (let i = 0; i <= days; i++) {
     const t = startTs + i * 86400;
-
     if (map.has(t)) {
       last = map.get(t)!;
       out.push({ time: t, value: last });
     } else {
-      // Weekend/holiday → repeat last rate
       out.push({ time: t, value: last });
     }
   }
@@ -91,7 +89,7 @@ export async function GET(req: Request) {
     // -----------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        // Constant 1.0 baseline
+        // USD baseline = constant 1.0
         const now = new Date();
         const arr: Point[] = [];
         for (let i = 0; i <= days; i++) {
@@ -111,15 +109,13 @@ export async function GET(req: Request) {
       const r = await fetch(url);
       const d = await r.json();
 
-      const raw: Point[] = Object.keys(d.rates || {})
-        .map(day => {
-          const rate = d.rates[day][symbol]; // USD→fiat
-          return {
-            time: parseDay(day),
-            value: 1 / rate, // Convert to fiat→USD
-          };
-        })
-        .sort((a, b) => a.time - b.time);
+      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
+        const rate = d.rates[day][symbol]; // USD→fiat
+        return {
+          time: parseDay(day),
+          value: 1 / rate, // convert fiat→USD
+        };
+      }).sort((a, b) => a.time - b.time);
 
       return smoothFiat(raw, days);
     };
@@ -128,63 +124,51 @@ export async function GET(req: Request) {
     // FETCH BOTH SERIES
     // -----------------------------
     const [Araw, Braw] = await Promise.all([
-      isFiat(base) ? fetchFiat(base) : fetchCrypto(base),
-      isFiat(quote) ? fetchFiat(quote) : fetchCrypto(quote),
+      isFiat(base) ? fetchFiat(base.toUpperCase()) : fetchCrypto(base),
+      isFiat(quote) ? fetchFiat(quote.toUpperCase()) : fetchCrypto(quote),
     ]);
 
     if (!Araw.length || !Braw.length)
       return Response.json({ history: [] });
 
     // -----------------------------
-    // BUILD NEAREST LOOKUP FOR B
+    // ALIGN START TIMES (CRITICAL FIX)
     // -----------------------------
-    const timesB = Braw.map(p => p.time);
-    const valuesB = Braw.map(p => p.value);
+    // Begin at the first timestamp BOTH series have data for.
+    const startTs = Math.max(Araw[0].time, Braw[0].time);
 
-    // Nearest timestamp index (past OR future)
-    function nearestIndex(t: number): number | null {
-      let lo = 0,
-        hi = timesB.length - 1;
+    const A = Araw.filter(p => p.time >= startTs);
+    const B = Braw.filter(p => p.time >= startTs);
 
-      // Binary search to position
-      while (lo <= hi) {
+    if (!A.length || !B.length)
+      return Response.json({ history: [] });
+
+    // -----------------------------
+    // NEAREST-PAST LOOKUP FOR QUOTE
+    // -----------------------------
+    const timesB = B.map(p => p.time);
+    const valuesB = B.map(p => p.value);
+
+    const nearest = (t: number): number => {
+      let lo = 0, hi = timesB.length - 1;
+      while (lo < hi) {
         const mid = (lo + hi) >> 1;
-        if (timesB[mid] === t) return mid;
         if (timesB[mid] < t) lo = mid + 1;
-        else hi = mid - 1;
+        else hi = mid;
       }
-
-      // lo = first index greater than t
-      // hi = last index less than t
-
-      if (hi < 0) return null; // no earlier
-      if (lo >= timesB.length) return hi; // no later → use earlier
-
-      // choose whichever is closer
-      const beforeDiff = Math.abs(timesB[hi] - t);
-      const afterDiff = Math.abs(timesB[lo] - t);
-
-      return beforeDiff <= afterDiff ? hi : lo;
-    }
+      return valuesB[lo];
+    };
 
     // -----------------------------
-    // MERGE + SKIP MISALIGNED POINTS
+    // MERGE USING BASE TIMELINE
     // -----------------------------
-    const merged: Point[] = [];
-    for (const p of Araw) {
-      const idx = nearestIndex(p.time);
-      if (idx === null) continue;
-
-      const div = valuesB[idx];
-      if (!div || !Number.isFinite(div)) continue;
-
-      merged.push({
-        time: p.time,
-        value: p.value / div,
-      });
-    }
+    const merged: Point[] = A.map(p => ({
+      time: p.time,
+      value: p.value / nearest(p.time),
+    }));
 
     return Response.json({ history: merged });
+
   } catch (e) {
     console.error("History API error:", e);
     return Response.json({ history: [] });
