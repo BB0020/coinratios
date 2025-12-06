@@ -1,164 +1,175 @@
 // /app/api/history/route.ts
-import { NextResponse } from "next/server";
+export const revalidate = 300; // 5 min cache
 
-const CG_BASE = "https://api.coingecko.com/api/v3";
-
-// ------------------------------
-// FETCH CRYPTO HISTORY
-// ------------------------------
-async function fetchCryptoHistory(id: string, days: number) {
-  const url = `${CG_BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-  const res = await fetch(url, { next: { revalidate: 600 } });
-
-  if (!res.ok) return [];
-
-  const data = await res.json();
-  if (!data.prices) return [];
-
-  return data.prices.map((p: any) => ({
-    time: Math.floor(p[0] / 1000),
-    value: p[1]
-  }));
+interface Point {
+  time: number;
+  value: number;
 }
 
-// ------------------------------
-// FETCH FIAT HISTORY (corrected)
-// ------------------------------
-async function fetchFiatHistory(base: string, quote: string, days: number) {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - days);
+const isFiat = (id: string) => /^[A-Z]{3,5}$/.test(id);
 
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+// Convert YYYY-MM-DD → UTC midnight timestamp
+const parseDay = (day: string) =>
+  Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
 
-  const url = `https://api.frankfurter.app/${fmt(start)}..${fmt(end)}?amount=1&from=${base}&to=${quote}`;
-  const res = await fetch(url, { next: { revalidate: 3600 } });
+// Build UTC date range for Frankfurter
+function buildDateRange(days: number) {
+  const now = new Date();
 
-  if (!res.ok) return [];
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  ));
 
-  const data = await res.json();
-  if (!data.rates) return [];
+  const start = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - days
+  ));
 
-  return Object.keys(data.rates).map((dateStr) => ({
-    time: Math.floor(new Date(dateStr).getTime() / 1000),
-    value: data.rates[dateStr][quote] // DO NOT INVERT HERE
-  }));
-}
-
-// ------------------------------
-// NEAREST TIMESTAMP MATCH (fix for BTC→ETH)
-// ------------------------------
-function makeNearestIndex(times: number[]) {
-  return function (target: number) {
-    // binary search
-    let lo = 0;
-    let hi = times.length - 1;
-
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (times[mid] < target) lo = mid + 1;
-      else hi = mid - 1;
-    }
-
-    // nearest past = hi
-    // nearest future = lo
-    const pastIdx = hi >= 0 ? hi : null;
-    const futureIdx = lo < times.length ? lo : null;
-
-    if (pastIdx === null) return futureIdx;        // only future available  
-    if (futureIdx === null) return pastIdx;        // only past available  
-
-    // choose whichever one is closer in time
-    const pastDiff = Math.abs(times[pastIdx] - target);
-    const futureDiff = Math.abs(times[futureIdx] - target);
-
-    return pastDiff <= futureDiff ? pastIdx : futureIdx;
+  return { 
+    start: start.toISOString().slice(0, 10), 
+    end: end.toISOString().slice(0, 10) 
   };
 }
 
-// ------------------------------
-// MAIN HANDLER
-// ------------------------------
+// Smooth fiat: Google Finance style (repeat last known value)
+function smoothFiat(points: Point[], days: number): Point[] {
+  if (!points.length) return [];
+
+  const now = new Date();
+  const startTs = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - days
+  ) / 1000;
+
+  const out: Point[] = [];
+  const map = new Map(points.map(p => [p.time, p.value]));
+  let last = points[0].value;
+
+  for (let i = 0; i <= days; i++) {
+    const t = startTs + i * 86400;
+
+    if (map.has(t)) {
+      last = map.get(t)!;
+      out.push({ time: t, value: last });
+    } else {
+      out.push({ time: t, value: last });
+    }
+  }
+
+  return out;
+}
+
 export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const base = searchParams.get("base")!;
+  const quote = searchParams.get("quote")!;
+  const days = Number(searchParams.get("days") ?? 30);
+
   try {
-    const url = new URL(req.url);
-    const base = url.searchParams.get("base")?.toLowerCase()!;
-    const quote = url.searchParams.get("quote")?.toLowerCase()!;
-    const days = Number(url.searchParams.get("days") || 7);
+    // -----------------------------
+    // CRYPTO FETCH (CoinGecko)
+    // -----------------------------
+    const fetchCrypto = async (id: string): Promise<Point[]> => {
+      const r = await fetch(
+        `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+      );
+      const d = await r.json();
 
-    if (!base || !quote) {
-      return NextResponse.json({ error: "missing base/quote" }, { status: 400 });
-    }
-
-    const isFiat = (c: string) =>
-      ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"].includes(c);
-
-    // ----------------------------------------
-    // FETCH BASE SERIES (correct fiat logic)
-    // ----------------------------------------
-    let baseHist: any[] = [];
-
-    if (isFiat(base)) {
-      // base → quote must be converted to base→USD
-      const raw = await fetchFiatHistory(base.toUpperCase(), "USD", days);
-
-      baseHist = raw.map((p) => ({
-        time: p.time,
-        value: p.value // Frankfurter already returns 1 base = X USD → correct
+      return (d.prices ?? []).map((p: [number, number]) => ({
+        time: Math.floor(p[0] / 1000),
+        value: p[1],
       }));
-    } else {
-      baseHist = await fetchCryptoHistory(base, days);
-    }
+    };
 
-    if (baseHist.length === 0) return NextResponse.json({ history: [] });
+    // -----------------------------
+    // FIAT FETCH (Frankfurter)
+    // -----------------------------
+    const fetchFiat = async (symbol: string): Promise<Point[]> => {
+      if (symbol === "USD") {
+        const now = new Date();
+        const arr: Point[] = [];
+        for (let i = 0; i <= days; i++) {
+          const t = Date.UTC(
+            now.getUTCFullYear(),
+            now.getUTCMonth(),
+            now.getUTCDate() - i
+          ) / 1000;
+          arr.push({ time: t, value: 1 });
+        }
+        return arr.reverse();
+      }
 
-    // ----------------------------------------
-    // FETCH QUOTE SERIES (correct fiat logic)
-    // ----------------------------------------
-    let quoteHist: any[] = [];
+      const { start, end } = buildDateRange(days);
+      const r = await fetch(
+        `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`
+      );
+      const d = await r.json();
 
-    if (isFiat(quote)) {
-      // USD → quote (Frankfurter returns X quote = 1 USD)
-      const raw = await fetchFiatHistory("USD", quote.toUpperCase(), days);
+      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
+        const rate = d.rates[day][symbol];
+        return { 
+          time: parseDay(day), 
+          value: 1 / rate 
+        };
+      }).sort((a, b) => a.time - b.time);
 
-      quoteHist = raw.map((p) => ({
+      return smoothFiat(raw, days);
+    };
+
+    // -----------------------------
+    // FETCH BOTH SERIES
+    // -----------------------------
+    const [Araw, Braw] = await Promise.all([
+      isFiat(base) ? fetchFiat(base) : fetchCrypto(base),
+      isFiat(quote) ? fetchFiat(quote) : fetchCrypto(quote),
+    ]);
+
+    if (!Araw.length || !Braw.length)
+      return Response.json({ history: [] });
+
+    // -----------------------------
+    // BUILD NEAREST-PAST LOOKUP
+    // -----------------------------
+    const timesB = Braw.map(p => p.time);
+    const valuesB = Braw.map(p => p.value);
+
+    // Correct industry-standard alignment:
+    // Pick the nearest timestamp <= target timestamp
+    const nearestPast = (t: number): number | null => {
+      let lo = 0;
+      let hi = timesB.length - 1;
+
+      if (timesB[0] > t) return null; // no past data → skip
+
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (timesB[mid] <= t) lo = mid;
+        else hi = mid - 1;
+      }
+      return valuesB[lo];
+    };
+
+    // -----------------------------
+    // MERGE USING BASE TIMELINE
+    // -----------------------------
+    const merged: Point[] = [];
+
+    for (const p of Araw) {
+      const divisor = nearestPast(p.time);
+      if (divisor === null) continue; // no past quote → skip early points
+      merged.push({
         time: p.time,
-        value: 1 / p.value // convert USD→quote into quote→USD
-      }));
-    } else {
-      quoteHist = await fetchCryptoHistory(quote, days);
+        value: p.value / divisor,
+      });
     }
 
-    if (quoteHist.length === 0) return NextResponse.json({ history: [] });
-
-    // ----------------------------------------
-    // ALIGN DATASETS
-    // ----------------------------------------
-    const A = baseHist.sort((a, b) => a.time - b.time);
-    const B = quoteHist.sort((a, b) => a.time - b.time);
-
-    const timesB = B.map((x) => x.time);
-    const valuesB = B.map((x) => x.value);
-
-    const nearestIndex = makeNearestIndex(timesB);
-
-    const merged: any[] = [];
-
-    for (const pt of A) {
-      const idx = nearestIndex(pt.time);
-      if (idx === null) continue;
-
-      const divisor = valuesB[idx];
-      if (!Number.isFinite(divisor)) continue;
-
-      const ratio = pt.value / divisor;
-      if (!Number.isFinite(ratio)) continue;
-
-      merged.push({ time: pt.time, value: ratio });
-    }
-
-    return NextResponse.json({ history: merged });
-  } catch (err: any) {
-    return NextResponse.json({ history: [] });
+    return Response.json({ history: merged });
+  } catch (e) {
+    console.error("History API error:", e);
+    return Response.json({ history: [] });
   }
 }
