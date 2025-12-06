@@ -65,9 +65,6 @@ function smoothFiat(points: Point[], days: number): Point[] {
   return out;
 }
 
-// =======================================================
-// MAIN API HANDLER
-// =======================================================
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const base = searchParams.get("base")!;
@@ -94,7 +91,7 @@ export async function GET(req: Request) {
     // -----------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        // USD baseline = 1
+        // Use constant baseline for USD
         const now = new Date();
         const arr: Point[] = [];
         for (let i = 0; i <= days; i++) {
@@ -114,15 +111,13 @@ export async function GET(req: Request) {
       const r = await fetch(url);
       const d = await r.json();
 
-      const raw: Point[] = Object.keys(d.rates || {})
-        .map(day => {
-          const rate = d.rates[day][symbol]; // USD→fiat
-          return {
-            time: parseDay(day),
-            value: 1 / rate, // Convert fiat→USD
-          };
-        })
-        .sort((a, b) => a.time - b.time);
+      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
+        const rate = d.rates[day][symbol]; // USD→fiat
+        return {
+          time: parseDay(day),
+          value: 1 / rate, // Convert to fiat→USD
+        };
+      }).sort((a, b) => a.time - b.time);
 
       return smoothFiat(raw, days);
     };
@@ -139,8 +134,7 @@ export async function GET(req: Request) {
       return Response.json({ history: [] });
 
     // -----------------------------
-    // BUILD TRUE NEAREST LOOKUP
-    // (fixes BTC→ETH 7D failure)
+    // BUILD NEAREST LOOKUP FOR B (FIXED)
     // -----------------------------
     const timesB = Braw.map(p => p.time);
     const valuesB = Braw.map(p => p.value);
@@ -148,7 +142,6 @@ export async function GET(req: Request) {
     function nearest(t: number): number {
       let lo = 0, hi = timesB.length - 1;
 
-      // Binary search for insertion point
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
         if (timesB[mid] === t) return valuesB[mid];
@@ -162,12 +155,10 @@ export async function GET(req: Request) {
       if (pastIdx === null) return valuesB[futureIdx!];
       if (futureIdx === null) return valuesB[pastIdx];
 
-      const pastDiff = Math.abs(t - timesB[pastIdx]);
-      const futureDiff = Math.abs(timesB[futureIdx] - t);
+      const dPast = t - timesB[pastIdx];
+      const dFuture = timesB[futureIdx] - t;
 
-      return pastDiff <= futureDiff
-        ? valuesB[pastIdx]
-        : valuesB[futureIdx];
+      return dPast <= dFuture ? valuesB[pastIdx] : valuesB[futureIdx];
     }
 
     // -----------------------------
@@ -179,6 +170,7 @@ export async function GET(req: Request) {
     }));
 
     return Response.json({ history: merged });
+
   } catch (e) {
     console.error("History API error:", e);
     return Response.json({ history: [] });
