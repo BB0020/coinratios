@@ -91,7 +91,7 @@ export async function GET(req: Request) {
     // -----------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        // USD = constant baseline
+        // Use constant baseline for USD
         const now = new Date();
         const arr: Point[] = [];
         for (let i = 0; i <= days; i++) {
@@ -111,13 +111,15 @@ export async function GET(req: Request) {
       const r = await fetch(url);
       const d = await r.json();
 
-      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
-        const rate = d.rates[day][symbol]; // USD→fiat rate
-        return {
-          time: parseDay(day),
-          value: 1 / rate, // convert fiat→USD
-        };
-      }).sort((a, b) => a.time - b.time);
+      const raw: Point[] = Object.keys(d.rates || {})
+        .map(day => {
+          const rate = d.rates[day][symbol]; // USD→fiat
+          return {
+            time: parseDay(day),
+            value: 1 / rate, // Convert to fiat→USD
+          };
+        })
+        .sort((a, b) => a.time - b.time);
 
       return smoothFiat(raw, days);
     };
@@ -134,35 +136,52 @@ export async function GET(req: Request) {
       return Response.json({ history: [] });
 
     // -----------------------------
-    // CORRECT nearestPrice()
-    // This ALWAYS returns a PRICE, never a timestamp.
+    // BUILD NEAREST LOOKUP FOR B
+    // (price-based, not timestamp-based)
     // -----------------------------
     const timesB = Braw.map(p => p.time);
     const valuesB = Braw.map(p => p.value);
 
-    const nearestPrice = (t: number): number => {
-      let lo = 0, hi = timesB.length - 1;
+    const nearest = (t: number): number | null => {
+      let lo = 0,
+        hi = timesB.length - 1;
+
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
         if (timesB[mid] < t) lo = mid + 1;
         else hi = mid;
       }
-      return valuesB[lo]; // ETH PRICE, not timestamp
+
+      return valuesB[lo] ?? null;
     };
 
     // -----------------------------
-    // MERGE USING BASE TIMELINE
-    // (industry-standard method)
+    // MERGE — DROP INVALID LEADING POINTS
     // -----------------------------
-    const merged: Point[] = Araw.map(p => {
-      const divisor = nearestPrice(p.time);
-      return {
-        time: p.time,
-        value: p.value / divisor,
-      };
-    });
+    const merged: Point[] = [];
 
-    return Response.json({ history: merged });
+    for (const p of Araw) {
+      const divisor = nearest(p.time);
+
+      if (divisor === null) continue;
+      if (!Number.isFinite(divisor)) continue;
+
+      const ratio = p.value / divisor;
+      if (!Number.isFinite(ratio)) continue;
+
+      merged.push({
+        time: p.time,
+        value: ratio,
+      });
+    }
+
+    if (merged.length > 0) {
+      return Response.json({ history: merged });
+    }
+
+    // No valid points at all…
+    return Response.json({ history: [] });
+
   } catch (e) {
     console.error("History API error:", e);
     return Response.json({ history: [] });
