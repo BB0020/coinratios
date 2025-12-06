@@ -65,6 +65,9 @@ function smoothFiat(points: Point[], days: number): Point[] {
   return out;
 }
 
+// =======================================================
+// MAIN API HANDLER
+// =======================================================
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const base = searchParams.get("base")!;
@@ -91,7 +94,7 @@ export async function GET(req: Request) {
     // -----------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        // Use constant baseline for USD
+        // USD baseline = 1
         const now = new Date();
         const arr: Point[] = [];
         for (let i = 0; i <= days; i++) {
@@ -111,13 +114,15 @@ export async function GET(req: Request) {
       const r = await fetch(url);
       const d = await r.json();
 
-      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
-        const rate = d.rates[day][symbol]; // USD→fiat
-        return {
-          time: parseDay(day),
-          value: 1 / rate, // Convert to fiat→USD
-        };
-      }).sort((a, b) => a.time - b.time);
+      const raw: Point[] = Object.keys(d.rates || {})
+        .map(day => {
+          const rate = d.rates[day][symbol]; // USD→fiat
+          return {
+            time: parseDay(day),
+            value: 1 / rate, // Convert fiat→USD
+          };
+        })
+        .sort((a, b) => a.time - b.time);
 
       return smoothFiat(raw, days);
     };
@@ -134,24 +139,39 @@ export async function GET(req: Request) {
       return Response.json({ history: [] });
 
     // -----------------------------
-    // BUILD NEAREST LOOKUP FOR B
+    // BUILD TRUE NEAREST LOOKUP
+    // (fixes BTC→ETH 7D failure)
     // -----------------------------
     const timesB = Braw.map(p => p.time);
     const valuesB = Braw.map(p => p.value);
 
-    const nearest = (t: number): number => {
+    function nearest(t: number): number {
       let lo = 0, hi = timesB.length - 1;
-      while (lo < hi) {
+
+      // Binary search for insertion point
+      while (lo <= hi) {
         const mid = (lo + hi) >> 1;
+        if (timesB[mid] === t) return valuesB[mid];
         if (timesB[mid] < t) lo = mid + 1;
-        else hi = mid;
+        else hi = mid - 1;
       }
-      return valuesB[lo];
-    };
+
+      const pastIdx = hi >= 0 ? hi : null;
+      const futureIdx = lo < timesB.length ? lo : null;
+
+      if (pastIdx === null) return valuesB[futureIdx!];
+      if (futureIdx === null) return valuesB[pastIdx];
+
+      const pastDiff = Math.abs(t - timesB[pastIdx]);
+      const futureDiff = Math.abs(timesB[futureIdx] - t);
+
+      return pastDiff <= futureDiff
+        ? valuesB[pastIdx]
+        : valuesB[futureIdx];
+    }
 
     // -----------------------------
     // MERGE USING BASE TIMELINE
-    // (This fixes crypto→crypto EMPTY results)
     // -----------------------------
     const merged: Point[] = Araw.map(p => ({
       time: p.time,
