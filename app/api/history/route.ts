@@ -1,10 +1,15 @@
 // /app/api/history/route.ts
-export const revalidate = 300; // cache 5 min
+export const revalidate = 300; // 5 min cache
+
+interface Point {
+  time: number;
+  value: number | null;
+}
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const base = searchParams.get("base");    // crypto ID or fiat symbol
-  const quote = searchParams.get("quote");  // crypto ID or fiat symbol
+  const base = searchParams.get("base");
+  const quote = searchParams.get("quote");
   const days = Number(searchParams.get("days") ?? 30);
 
   if (!base || !quote) {
@@ -12,21 +17,26 @@ export async function GET(req: Request) {
   }
 
   try {
-    // helpers
-    const fetchCrypto = async (id: string) => {
+    // ---------------------------------------------------------
+    // FETCH CRYPTO (Coingecko)
+    // ---------------------------------------------------------
+    const fetchCrypto = async (id: string): Promise<Point[]> => {
       const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
       const r = await fetch(url, { next: { revalidate: 300 } });
       const d = await r.json();
 
-      return (d.prices ?? []).map((p: any) => ({
+      return (d.prices ?? []).map((p: [number, number]): Point => ({
         time: Math.floor(p[0] / 1000),
-        value: p[1],
+        value: Number(p[1]),
       }));
     };
 
-    const fetchFiat = async (symbol: string) => {
+    // ---------------------------------------------------------
+    // FETCH FIAT (Frankfurter)
+    // ---------------------------------------------------------
+    const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        const out = [];
+        const out: Point[] = [];
         const now = Date.now();
 
         for (let i = 0; i < days; i++) {
@@ -48,53 +58,67 @@ export async function GET(req: Request) {
       const r = await fetch(url, { next: { revalidate: 300 } });
       const d = await r.json();
 
-      return Object.keys(d.rates).map((day) => {
-        const usdToFiat = d.rates[day][symbol];
+      const arr: Point[] = Object.keys(d.rates).map((dayStr: string): Point => {
+        const usdToFiat = d.rates[dayStr]?.[symbol];
         return {
-          time: Math.floor(new Date(day).getTime() / 1000),
-          value: 1 / usdToFiat,
+          time: Math.floor(new Date(dayStr).getTime() / 1000),
+          value: usdToFiat ? 1 / usdToFiat : null,
         };
       });
+
+      return arr
+        .filter((pt: Point) => Number.isFinite(pt.value))
+        .sort((a: Point, b: Point) => a.time - b.time);
     };
 
-    // load both sides in parallel
-    const [baseHist, quoteHist] = await Promise.all([
+    // ---------------------------------------------------------
+    // LOAD BOTH HISTORIES
+    // ---------------------------------------------------------
+    let [baseHist, quoteHist] = await Promise.all([
       /\d/.test(base) ? fetchCrypto(base) : fetchFiat(base),
       /\d/.test(quote) ? fetchCrypto(quote) : fetchFiat(quote),
     ]);
 
-    // merge (binary search for nearest)
-    const merge = (a: any[], b: any[]) => {
-      const out = [];
+    baseHist = baseHist.sort((a: Point, b: Point) => a.time - b.time);
+    quoteHist = quoteHist.sort((a: Point, b: Point) => a.time - b.time);
 
-      const timesB = b.map((pt) => pt.time);
-      const valuesB = b.map((pt) => pt.value);
+    const quoteTimes = quoteHist.map((p: Point) => p.time);
+    const quoteValues = quoteHist.map((p: Point) => p.value ?? 1);
 
-      const nearest = (t: number) => {
-        // binary search
-        let lo = 0,
-          hi = timesB.length - 1;
+    // ---------------------------------------------------------
+    // TYPED nearestValue() — no more implicit any
+    // ---------------------------------------------------------
+    const nearestValue = (t: number): number => {
+      let lo = 0;
+      let hi = quoteTimes.length - 1;
 
-        while (lo < hi) {
-          const mid = (lo + hi) >> 1;
-          if (timesB[mid] < t) lo = mid + 1;
-          else hi = mid;
-        }
-
-        return valuesB[lo] ?? valuesB[valuesB.length - 1];
-      };
-
-      for (const pt of a) {
-        out.push({
-          time: pt.time,
-          value: pt.value / nearest(pt.time),
-        });
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (quoteTimes[mid] < t) lo = mid + 1;
+        else hi = mid;
       }
 
-      return out;
+      const v = quoteValues[lo];
+      return Number.isFinite(v) ? (v as number) : 1;
     };
 
-    return Response.json({ history: merge(baseHist, quoteHist) });
+    // ---------------------------------------------------------
+    // MERGE (typed)
+    // ---------------------------------------------------------
+    const merged: Point[] = baseHist
+      .map((pt: Point): Point => {
+        const q = nearestValue(pt.time);
+        const val = Number(pt.value) / q;
+
+        return {
+          time: pt.time,
+          value: Number.isFinite(val) ? val : null,
+        };
+      })
+      .filter((pt: Point) => Number.isFinite(pt.value))
+      .sort((a: Point, b: Point) => a.time - b.time);
+
+    return Response.json({ history: merged });
   } catch (e) {
     return Response.json({ history: [] });
   }
