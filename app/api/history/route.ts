@@ -78,6 +78,8 @@ export async function GET(req: Request) {
       }
 
       const { start, end } = buildDateRange(days);
+      console.log("FRANKFURTER RANGE:", start, end);
+      console.log("NOW:", new Date().toISOString());
       const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`;
 
       const r = await fetch(url);
