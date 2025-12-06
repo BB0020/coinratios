@@ -1,34 +1,69 @@
 // /app/api/history/route.ts
-export const revalidate = 300; // Cache 5 minutes
+export const revalidate = 300; // cache 5 minutes
 
 interface Point {
-  time: number; // UNIX seconds
-  value: number | null;
+  time: number;   // UNIX seconds
+  value: number;  // never null after smoothing
 }
 
-// Detect fiat: 3–5 uppercase letters (USD, GBP, EUR, CAD, AUD, etc)
+// Detect fiat like USD, GBP, CAD, EUR, JPY
 const isFiat = (id: string) => /^[A-Z]{3,5}$/.test(id);
 
-// Parse YYYY-MM-DD as UTC midnight
-const parseFrankfurterDate = (day: string): number =>
+// Convert YYYY-MM-DD → UTC timestamp
+const parseDay = (day: string) =>
   Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
 
-// Build safe UTC date range
+// Build clean date range (UTC)
 function buildDateRange(days: number) {
   const now = new Date();
 
-  const endUTC = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  ));
 
-  const startUTC = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)
-  );
+  const start = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - days
+  ));
 
   return {
-    start: startUTC.toISOString().slice(0, 10),
-    end: endUTC.toISOString().slice(0, 10),
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
   };
+}
+
+// Smooth missing FX days (Google Finance style)
+// Repeats last known value for weekends/holidays.
+function smoothFiat(points: Point[], days: number): Point[] {
+  if (!points.length) return [];
+
+  const now = new Date();
+  const startTs = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - days
+  ) / 1000;
+
+  const out: Point[] = [];
+  const map = new Map(points.map(p => [p.time, p.value]));
+  let last = points[0].value;
+
+  for (let i = 0; i <= days; i++) {
+    const t = startTs + i * 86400;
+
+    if (map.has(t)) {
+      last = map.get(t)!;
+      out.push({ time: t, value: last });
+    } else {
+      // Weekend / holiday → repeat last known FX
+      out.push({ time: t, value: last });
+    }
+  }
+
+  return out;
 }
 
 export async function GET(req: Request) {
@@ -39,14 +74,13 @@ export async function GET(req: Request) {
 
   try {
     // -----------------------------
-    // FETCH CRYPTO HISTORY (Coingecko)
+    // CRYPTO FETCH (CoinGecko)
     // -----------------------------
     const fetchCrypto = async (id: string): Promise<Point[]> => {
       const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
       const r = await fetch(url);
       const d = await r.json();
 
-      // Coingecko: [ ms_timestamp, price ]
       return (d.prices ?? []).map((p: [number, number]) => ({
         time: Math.floor(p[0] / 1000),
         value: p[1],
@@ -54,104 +88,77 @@ export async function GET(req: Request) {
     };
 
     // -----------------------------
-    // FETCH FIAT HISTORY (Frankfurter /range endpoint)
+    // FIAT FETCH (Frankfurter)
+    // Google Finance smoothing applied here
     // -----------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
-      // USD = constant 1
+      // USD baseline
       if (symbol === "USD") {
         const now = new Date();
         const arr: Point[] = [];
-
-        for (let i = 0; i < days; i++) {
-          const ts =
-            Date.UTC(
-              now.getUTCFullYear(),
-              now.getUTCMonth(),
-              now.getUTCDate() - i
-            ) / 1000;
-          arr.push({ time: ts, value: 1 });
+        for (let i = 0; i <= days; i++) {
+          const t = Date.UTC(
+            now.getUTCFullYear(),
+            now.getUTCMonth(),
+            now.getUTCDate() - i
+          ) / 1000;
+          arr.push({ time: t, value: 1 });
         }
         return arr.reverse();
       }
 
       const { start, end } = buildDateRange(days);
-
-      // IMPORTANT: Use /range endpoint (much more reliable than path syntax)
-      const url = `https://api.frankfurter.app/range?amount=1&from=USD&to=${symbol}&start_date=${start}&end_date=${end}`;
-
+      const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`;
       const r = await fetch(url);
-      const data = await r.json();
+      const d = await r.json();
 
-      if (!data.rates || typeof data.rates !== "object") {
-        return [];
-      }
+      // Convert raw daily FX → array of points
+      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
+        const rate = d.rates[day][symbol];
+        return {
+          time: parseDay(day),
+          value: 1 / rate, // USD per fiat
+        };
+      }).sort((a, b) => a.time - b.time);
 
-      // Convert rates to USD-per-symbol using 1 / FX rate
-      return Object.keys(data.rates)
-        .map((day) => {
-          const val = data.rates[day]?.[symbol];
-          return {
-            time: parseFrankfurterDate(day),
-            value: val ? 1 / val : null,
-          };
-        })
-        .filter((p) => Number.isFinite(p.value))
-        .sort((a, b) => a.time - b.time);
+      // Apply smoothing (Google Finance style)
+      return smoothFiat(raw, days);
     };
 
     // -----------------------------
-    // LOAD BOTH HISTORIES
+    // FETCH BASE + QUOTE IN PARALLEL
     // -----------------------------
-    const [baseHist, quoteHist] = await Promise.all([
+    const [Araw, Braw] = await Promise.all([
       isFiat(base) ? fetchFiat(base) : fetchCrypto(base),
       isFiat(quote) ? fetchFiat(quote) : fetchCrypto(quote),
     ]);
 
-    const A = baseHist.sort((a, b) => a.time - b.time);
-    const B = quoteHist.sort((a, b) => a.time - b.time);
-
-    if (!A.length || !B.length) {
-      return Response.json({ history: [] });
-    }
+    if (!Araw.length || !Braw.length) return Response.json({ history: [] });
 
     // -----------------------------
-    // NEAREST-MATCH LOOKUP FOR B
+    // MERGE (A/B ratio)
     // -----------------------------
-    const times = B.map((p) => p.time);
-    const values = B.map((p) => p.value ?? 1);
+    const times = Braw.map(p => p.time);
+    const values = Braw.map(p => p.value);
 
-    const nearest = (t: number): number => {
-      let lo = 0,
-        hi = times.length - 1;
-
+    const nearest = (t: number) => {
+      let lo = 0, hi = times.length - 1;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
         if (times[mid] < t) lo = mid + 1;
         else hi = mid;
       }
-
-      const v = values[lo];
-      return Number.isFinite(v) ? v! : 1;
+      return values[lo];
     };
 
-    // -----------------------------
-    // MERGE INTO RATIO HISTORY
-    // -----------------------------
-    const merged: Point[] = A.map((p) => {
-      const div = nearest(p.time);
-      const val = p.value! / div;
-
-      return {
-        time: p.time,
-        value: Number.isFinite(val) ? val : null,
-      };
-    })
-      .filter((p) => Number.isFinite(p.value))
-      .sort((a, b) => a.time - b.time);
+    const merged: Point[] = Araw.map(p => ({
+      time: p.time,
+      value: p.value / nearest(p.time)
+    }));
 
     return Response.json({ history: merged });
-  } catch (err) {
-    console.error("History API Error:", err);
+  } catch (e) {
+    console.error("History API error:", e);
     return Response.json({ history: [] });
   }
 }
