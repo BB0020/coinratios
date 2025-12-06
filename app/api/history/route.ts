@@ -1,12 +1,11 @@
+// /app/api/history/route.ts
 import { NextResponse } from "next/server";
 
 const CG_BASE = "https://api.coingecko.com/api/v3";
 
-// -------------------------------------------------------------
-// Helpers
-// -------------------------------------------------------------
-
-// Fetch hourly crypto history from CG
+// ------------------------------
+// FETCH CRYPTO HISTORY
+// ------------------------------
 async function fetchCryptoHistory(id: string, days: number) {
   const url = `${CG_BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
   const res = await fetch(url, { next: { revalidate: 600 } });
@@ -18,11 +17,13 @@ async function fetchCryptoHistory(id: string, days: number) {
 
   return data.prices.map((p: any) => ({
     time: Math.floor(p[0] / 1000),
-    value: p[1], // already USD price
+    value: p[1]
   }));
 }
 
-// Fetch daily FX history from Frankfurter (BASE→QUOTE)
+// ------------------------------
+// FETCH FIAT HISTORY (corrected)
+// ------------------------------
 async function fetchFiatHistory(base: string, quote: string, days: number) {
   const end = new Date();
   const start = new Date();
@@ -38,54 +39,49 @@ async function fetchFiatHistory(base: string, quote: string, days: number) {
   const data = await res.json();
   if (!data.rates) return [];
 
-  // Convert daily rate entries to timeline
-  const output = Object.keys(data.rates).map((dateStr) => ({
+  return Object.keys(data.rates).map((dateStr) => ({
     time: Math.floor(new Date(dateStr).getTime() / 1000),
-    value: data.rates[dateStr][quote],
+    value: data.rates[dateStr][quote] // DO NOT INVERT HERE
   }));
+}
 
-  // Frankfurter skips weekends/holidays → fill forward last-known value
-  output.sort((a, b) => a.time - b.time);
+// ------------------------------
+// NEAREST TIMESTAMP MATCH (fix for BTC→ETH)
+// ------------------------------
+function makeNearestIndex(times: number[]) {
+  return function (target: number) {
+    // binary search
+    let lo = 0;
+    let hi = times.length - 1;
 
-  let last = output.length > 0 ? output[0].value : null;
-
-  for (let i = 0; i < output.length; i++) {
-    if (output[i].value == null) {
-      output[i].value = last;
-    } else {
-      last = output[i].value;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (times[mid] < target) lo = mid + 1;
+      else hi = mid - 1;
     }
-  }
 
-  return output;
+    // nearest past = hi
+    // nearest future = lo
+    const pastIdx = hi >= 0 ? hi : null;
+    const futureIdx = lo < times.length ? lo : null;
+
+    if (pastIdx === null) return futureIdx;        // only future available  
+    if (futureIdx === null) return pastIdx;        // only past available  
+
+    // choose whichever one is closer in time
+    const pastDiff = Math.abs(times[pastIdx] - target);
+    const futureDiff = Math.abs(times[futureIdx] - target);
+
+    return pastDiff <= futureDiff ? pastIdx : futureIdx;
+  };
 }
 
-// Binary search: nearest B.timestamp <= t
-function findNearestPast(times: number[], target: number) {
-  let lo = 0;
-  let hi = times.length - 1;
-  let best = -1;
-
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (times[mid] <= target) {
-      best = mid;
-      lo = mid + 1;
-    } else hi = mid - 1;
-  }
-
-  return best;
-}
-
-const FIATS = ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"];
-
-// -------------------------------------------------------------
-// Main Handler
-// -------------------------------------------------------------
+// ------------------------------
+// MAIN HANDLER
+// ------------------------------
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-
     const base = url.searchParams.get("base")?.toLowerCase()!;
     const quote = url.searchParams.get("quote")?.toLowerCase()!;
     const days = Number(url.searchParams.get("days") || 7);
@@ -94,94 +90,75 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "missing base/quote" }, { status: 400 });
     }
 
-    const isFiat = (c: string) => FIATS.includes(c);
+    const isFiat = (c: string) =>
+      ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"].includes(c);
 
-    // ---------------------------------------------------------
-    // 1. FETCH BASE HISTORY → normalized to USD/unit
-    // ---------------------------------------------------------
+    // ----------------------------------------
+    // FETCH BASE SERIES (correct fiat logic)
+    // ----------------------------------------
     let baseHist: any[] = [];
 
     if (isFiat(base)) {
-      // e.g. base = GBP → fetch GBP→USD (Frankfurter returns USD per GBP? No.)
-      // Frankfurter returns: 1 GBP = X USD → done by from=GBP&to=USD
+      // base → quote must be converted to base→USD
       const raw = await fetchFiatHistory(base.toUpperCase(), "USD", days);
-      baseHist = raw.map((pt) => ({
-        time: pt.time,
-        value: pt.value, // already USD per 1 BASE
+
+      baseHist = raw.map((p) => ({
+        time: p.time,
+        value: p.value // Frankfurter already returns 1 base = X USD → correct
       }));
     } else {
-      // Crypto is already quoted in USD from CoinGecko
       baseHist = await fetchCryptoHistory(base, days);
     }
 
-    if (baseHist.length === 0)
-      return NextResponse.json({ history: [] });
+    if (baseHist.length === 0) return NextResponse.json({ history: [] });
 
-    // ---------------------------------------------------------
-    // 2. FETCH QUOTE HISTORY → normalized to USD/unit
-    // ---------------------------------------------------------
+    // ----------------------------------------
+    // FETCH QUOTE SERIES (correct fiat logic)
+    // ----------------------------------------
     let quoteHist: any[] = [];
 
     if (isFiat(quote)) {
+      // USD → quote (Frankfurter returns X quote = 1 USD)
       const raw = await fetchFiatHistory("USD", quote.toUpperCase(), days);
-      // Frankfurter returns: 1 USD = X QUOTE
-      // We need USD per QUOTE → invert
-      quoteHist = raw.map((pt) => ({
-        time: pt.time,
-        value: 1 / pt.value,
+
+      quoteHist = raw.map((p) => ({
+        time: p.time,
+        value: 1 / p.value // convert USD→quote into quote→USD
       }));
     } else {
       quoteHist = await fetchCryptoHistory(quote, days);
     }
 
-    if (quoteHist.length === 0)
-      return NextResponse.json({ history: [] });
+    if (quoteHist.length === 0) return NextResponse.json({ history: [] });
 
-    // ---------------------------------------------------------
-    // 3. SORT + ALIGN TIMESTAMPS
-    // ---------------------------------------------------------
+    // ----------------------------------------
+    // ALIGN DATASETS
+    // ----------------------------------------
     const A = baseHist.sort((a, b) => a.time - b.time);
     const B = quoteHist.sort((a, b) => a.time - b.time);
 
     const timesB = B.map((x) => x.time);
     const valuesB = B.map((x) => x.value);
 
-    const MAX_DIFF = 90 * 60; // 90 min strict
-    const MAX_DIFF_FALLBACK = 120 * 60; // fallback: 120 min
+    const nearestIndex = makeNearestIndex(timesB);
 
-    let merged: any[] = [];
+    const merged: any[] = [];
 
-    function alignWithLimit(limit: number) {
-      const out = [];
-      for (const a of A) {
-        const idx = findNearestPast(timesB, a.time);
-        if (idx === -1) continue;
+    for (const pt of A) {
+      const idx = nearestIndex(pt.time);
+      if (idx === null) continue;
 
-        const matchTime = timesB[idx];
-        if (a.time - matchTime > limit) continue;
+      const divisor = valuesB[idx];
+      if (!Number.isFinite(divisor)) continue;
 
-        const divisor = valuesB[idx];
-        const ratio = a.value / divisor;
-        if (!Number.isFinite(ratio)) continue;
+      const ratio = pt.value / divisor;
+      if (!Number.isFinite(ratio)) continue;
 
-        out.push({ time: a.time, value: ratio });
-      }
-      return out;
-    }
-
-    // First pass: strict 90-minute matching
-    merged = alignWithLimit(MAX_DIFF);
-
-    // Fallback: relax to 120 minutes
-    if (merged.length < 5) {
-      merged = alignWithLimit(MAX_DIFF_FALLBACK);
+      merged.push({ time: pt.time, value: ratio });
     }
 
     return NextResponse.json({ history: merged });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message ?? "unknown error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ history: [] });
   }
 }
