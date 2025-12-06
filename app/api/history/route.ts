@@ -1,25 +1,25 @@
 // /app/api/history/route.ts
-export const revalidate = 300; // 5 minutes
+export const revalidate = 300; // 5 min cache
 
-// -------------------------------------
+// -----------------------------
 // TYPES
-// -------------------------------------
-export interface Point {
-  time: number; // unix timestamp in seconds
-  value: number; // price in USD
+// -----------------------------
+interface Point {
+  time: number;
+  value: number;
 }
 
-export interface FrankfurterResponse {
+interface FrankfurterResponse {
   rates: Record<string, Record<string, number>>;
 }
 
-export interface CGChartResponse {
+interface CGResponse {
   prices: [number, number][];
 }
 
-// -------------------------------------
+// -----------------------------
 // HELPERS
-// -------------------------------------
+// -----------------------------
 const isFiat = (id: string): boolean => /^[A-Z]{3,5}$/.test(id);
 
 const parseDay = (day: string): number =>
@@ -42,7 +42,7 @@ function buildDateRange(days: number): { start: string; end: string } {
   };
 }
 
-// Repeat last known value for missing days (weekends/holidays)
+// Smooth fiat missing days (weekends/holidays)
 function smoothFiat(points: Point[], days: number): Point[] {
   if (!points.length) return [];
 
@@ -52,61 +52,56 @@ function smoothFiat(points: Point[], days: number): Point[] {
     1000;
 
   const out: Point[] = [];
-  const map = new Map<number, number>(
-    points.map((p: Point) => [p.time, p.value])
-  );
+  const map = new Map<number, number>();
+  points.forEach((p) => map.set(p.time, p.value));
 
   let last = points[0].value;
 
   for (let i = 0; i <= days; i++) {
     const t = startTs + i * 86400;
-
     if (map.has(t)) {
       last = map.get(t)!;
     }
-
     out.push({ time: t, value: last });
   }
 
   return out;
 }
 
-// -------------------------------------
+// -----------------------------
 // FETCH CRYPTO (CoinGecko)
-// -------------------------------------
+// -----------------------------
 async function fetchCrypto(id: string, days: number): Promise<Point[]> {
   const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-
   const r = await fetch(url);
   if (!r.ok) return [];
 
-  const d = (await r.json()) as CGChartResponse;
+  const d = (await r.json()) as CGResponse;
   if (!d.prices) return [];
 
-  return d.prices.map(([tsMs, price]: [number, number]): Point => ({
-    time: Math.floor(tsMs / 1000),
+  return d.prices.map(([ts, price]) => ({
+    time: Math.floor(ts / 1000),
     value: price,
   }));
 }
 
-// -------------------------------------
+// -----------------------------
 // FETCH FIAT (Frankfurter)
-// -------------------------------------
+// -----------------------------
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
-  // USD has no fluctuation → stable baseline
   if (symbol === "USD") {
     const now = new Date();
-    const pts: Point[] = [];
+    const arr: Point[] = [];
     for (let i = 0; i <= days; i++) {
-      const t =
+      const ts =
         Date.UTC(
           now.getUTCFullYear(),
           now.getUTCMonth(),
           now.getUTCDate() - i
         ) / 1000;
-      pts.push({ time: t, value: 1 });
+      arr.push({ time: ts, value: 1 });
     }
-    return pts.reverse();
+    return arr.reverse();
   }
 
   const { start, end } = buildDateRange(days);
@@ -119,59 +114,71 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   if (!d.rates) return [];
 
   const raw: Point[] = Object.keys(d.rates)
-    .map((day: string): Point => {
-      const rate = d.rates[day][symbol];
-      return {
-        time: parseDay(day),
-        value: 1 / rate, // convert USD→fiat to fiat→USD
-      };
-    })
+    .map((day) => ({
+      time: parseDay(day),
+      value: 1 / d.rates[day][symbol], // convert to fiat→USD
+    }))
     .sort((a, b) => a.time - b.time);
 
   return smoothFiat(raw, days);
 }
 
 // -------------------------------------
-// API HANDLER
+// FIND NEAREST TIMESTAMP IN B
 // -------------------------------------
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const base = searchParams.get("base")!;
-    const quote = searchParams.get("quote")!;
-    const days = Number(searchParams.get("days") ?? 30);
+function nearestTimeFactory(times: number[], values: number[]) {
+  return function (t: number): number | null {
+    let lo = 0;
+    let hi = times.length - 1;
+    let bestIndex = -1;
 
-    if (!base || !quote) {
-      return Response.json({ history: [] });
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (times[mid] <= t) {
+        bestIndex = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
     }
 
-    // Fetch both in parallel
+    return bestIndex === -1 ? null : values[bestIndex];
+  };
+}
+
+// -----------------------------
+// MAIN ROUTE HANDLER
+// -----------------------------
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const base = searchParams.get("base")!;
+  const quote = searchParams.get("quote")!;
+  const days = Number(searchParams.get("days") ?? 30);
+
+  try {
     const [Araw, Braw] = await Promise.all([
       isFiat(base) ? fetchFiat(base, days) : fetchCrypto(base, days),
       isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days),
     ]);
 
-    if (!Araw.length || !Braw.length) {
-      return Response.json({ history: [] });
-    }
+    if (!Araw.length || !Braw.length) return Response.json({ history: [] });
 
-    // -----------------------------
-    // INDEX-ALIGNED MERGING
-    // (accurate, stable, prevents mismatches)
-    // -----------------------------
-    const len = Math.min(Araw.length, Braw.length);
-    const merged: Point[] = new Array(len);
+    const timesB = Braw.map((p) => p.time);
+    const valuesB = Braw.map((p) => p.value);
 
-    for (let i = 0; i < len; i++) {
-      const A = Araw[i];
-      const B = Braw[i];
+    const nearest = nearestTimeFactory(timesB, valuesB);
 
-      const ratio = A.value / B.value;
+    const merged: Point[] = [];
 
-      merged[i] = {
-        time: A.time, // timestamps approximately aligned
-        value: ratio,
-      };
+    for (const p of Araw) {
+      const div = nearest(p.time);
+      if (div === null) continue;
+      if (div === 0) continue;
+
+      merged.push({
+        time: p.time,
+        value: p.value / div,
+      });
     }
 
     return Response.json({ history: merged });
