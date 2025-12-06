@@ -91,7 +91,7 @@ export async function GET(req: Request) {
     // -----------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        // Use constant baseline for USD
+        // Constant 1.0 baseline
         const now = new Date();
         const arr: Point[] = [];
         for (let i = 0; i <= days; i++) {
@@ -111,19 +111,21 @@ export async function GET(req: Request) {
       const r = await fetch(url);
       const d = await r.json();
 
-      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
-        const rate = d.rates[day][symbol]; // USD→fiat
-        return {
-          time: parseDay(day),
-          value: 1 / rate, // Convert to fiat→USD
-        };
-      }).sort((a, b) => a.time - b.time);
+      const raw: Point[] = Object.keys(d.rates || {})
+        .map(day => {
+          const rate = d.rates[day][symbol]; // USD→fiat
+          return {
+            time: parseDay(day),
+            value: 1 / rate, // Convert to fiat→USD
+          };
+        })
+        .sort((a, b) => a.time - b.time);
 
       return smoothFiat(raw, days);
     };
 
     // -----------------------------
-    // FETCH BOTH SERIES IN PARALLEL
+    // FETCH BOTH SERIES
     // -----------------------------
     const [Araw, Braw] = await Promise.all([
       isFiat(base) ? fetchFiat(base) : fetchCrypto(base),
@@ -134,43 +136,55 @@ export async function GET(req: Request) {
       return Response.json({ history: [] });
 
     // -----------------------------
-    // BUILD NEAREST LOOKUP FOR B (FIXED)
+    // BUILD NEAREST LOOKUP FOR B
     // -----------------------------
     const timesB = Braw.map(p => p.time);
     const valuesB = Braw.map(p => p.value);
 
-    function nearest(t: number): number {
-      let lo = 0, hi = timesB.length - 1;
+    // Nearest timestamp index (past OR future)
+    function nearestIndex(t: number): number | null {
+      let lo = 0,
+        hi = timesB.length - 1;
 
+      // Binary search to position
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
-        if (timesB[mid] === t) return valuesB[mid];
+        if (timesB[mid] === t) return mid;
         if (timesB[mid] < t) lo = mid + 1;
         else hi = mid - 1;
       }
 
-      const pastIdx = hi >= 0 ? hi : null;
-      const futureIdx = lo < timesB.length ? lo : null;
+      // lo = first index greater than t
+      // hi = last index less than t
 
-      if (pastIdx === null) return valuesB[futureIdx!];
-      if (futureIdx === null) return valuesB[pastIdx];
+      if (hi < 0) return null; // no earlier
+      if (lo >= timesB.length) return hi; // no later → use earlier
 
-      const dPast = t - timesB[pastIdx];
-      const dFuture = timesB[futureIdx] - t;
+      // choose whichever is closer
+      const beforeDiff = Math.abs(timesB[hi] - t);
+      const afterDiff = Math.abs(timesB[lo] - t);
 
-      return dPast <= dFuture ? valuesB[pastIdx] : valuesB[futureIdx];
+      return beforeDiff <= afterDiff ? hi : lo;
     }
 
     // -----------------------------
-    // MERGE USING BASE TIMELINE
+    // MERGE + SKIP MISALIGNED POINTS
     // -----------------------------
-    const merged: Point[] = Araw.map(p => ({
-      time: p.time,
-      value: p.value / nearest(p.time),
-    }));
+    const merged: Point[] = [];
+    for (const p of Araw) {
+      const idx = nearestIndex(p.time);
+      if (idx === null) continue;
+
+      const div = valuesB[idx];
+      if (!div || !Number.isFinite(div)) continue;
+
+      merged.push({
+        time: p.time,
+        value: p.value / div,
+      });
+    }
 
     return Response.json({ history: merged });
-
   } catch (e) {
     console.error("History API error:", e);
     return Response.json({ history: [] });
