@@ -1,19 +1,20 @@
 // /app/api/history/route.ts
-export const revalidate = 300; // 5 min cache
+export const revalidate = 300; // 5 min CDN cache
 
 interface Point {
   time: number;
   value: number;
 }
 
-// Detect fiat (USD, EUR, GBP, CAD, etc.)
-const isFiat = (id: string) => /^[A-Z]{3,5}$/.test(id);
+const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
 
-// Parse YYYY-MM-DD safely into UTC midnight timestamp
-const parseDay = (day: string) =>
-  Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
+// ---------------------------------------------
+// Helpers
+// ---------------------------------------------
+function parseDay(day: string) {
+  return Math.floor(new Date(day + "T00:00:00Z").getTime() / 1000);
+}
 
-// Build UTC start/end dates for Frankfurter
 function buildDateRange(days: number) {
   const now = new Date();
 
@@ -35,34 +36,40 @@ function buildDateRange(days: number) {
   };
 }
 
-// Smooth fiat (weekends/holidays) → Google Finance style forward-fill
-function smoothFiat(points: Point[], days: number): Point[] {
-  if (!points.length) return [];
+// Smooth fiat gaps like Google Finance
+function smoothFiat(raw: Point[], days: number): Point[] {
+  if (!raw.length) return [];
 
   const now = new Date();
-  const startTs = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() - days
-  ) / 1000;
+  const startTs =
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - days
+    ) / 1000;
 
+  // Build a map for quick lookup
+  const map = new Map(raw.map((p) => [p.time, p.value]));
   const out: Point[] = [];
-  const map = new Map(points.map(p => [p.time, p.value]));
-  let last = points[0].value;
+
+  let last = raw[0].value;
 
   for (let i = 0; i <= days; i++) {
     const t = startTs + i * 86400;
+
     if (map.has(t)) {
       last = map.get(t)!;
-      out.push({ time: t, value: last });
-    } else {
-      out.push({ time: t, value: last });
     }
+
+    out.push({ time: t, value: last });
   }
 
   return out;
 }
 
+// ---------------------------------------------
+// Main Route Handler
+// ---------------------------------------------
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const base = searchParams.get("base")!;
@@ -70,37 +77,40 @@ export async function GET(req: Request) {
   const days = Number(searchParams.get("days") ?? 30);
 
   try {
-    // -----------------------------
-    // FETCH CRYPTO (CoinGecko)
-    // -----------------------------
+    // ---------------------------------------------
+    // Fetch crypto from CoinGecko
+    // ---------------------------------------------
     const fetchCrypto = async (id: string): Promise<Point[]> => {
       const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-      const r = await fetch(url);
-      const d = await r.json();
+      const res = await fetch(url);
+      const json = await res.json();
 
-      return (d.prices ?? []).map((p: [number, number]) => ({
+      if (!json.prices) return [];
+
+      return json.prices.map((p: [number, number]) => ({
         time: Math.floor(p[0] / 1000),
         value: p[1],
       }));
     };
 
-    // -----------------------------
-    // FETCH FIAT (Frankfurter)
-    // -----------------------------
+    // ---------------------------------------------
+    // Fetch fiat from Frankfurter + smoothing
+    // ---------------------------------------------
     const fetchFiat = async (symbol: string): Promise<Point[]> => {
       if (symbol === "USD") {
-        // USD baseline = constant 1.0
+        // USD baseline = 1
         const now = new Date();
-        const arr: Point[] = [];
+        const out: Point[] = [];
         for (let i = 0; i <= days; i++) {
-          const t = Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate() - i
-          ) / 1000;
-          arr.push({ time: t, value: 1 });
+          const t =
+            Date.UTC(
+              now.getUTCFullYear(),
+              now.getUTCMonth(),
+              now.getUTCDate() - i
+            ) / 1000;
+          out.push({ time: t, value: 1 });
         }
-        return arr.reverse();
+        return out.reverse();
       }
 
       const { start, end } = buildDateRange(days);
@@ -109,68 +119,49 @@ export async function GET(req: Request) {
       const r = await fetch(url);
       const d = await r.json();
 
-      const raw: Point[] = Object.keys(d.rates || {}).map(day => {
-        const rate = d.rates[day][symbol]; // USD→fiat
-        return {
-          time: parseDay(day),
-          value: 1 / rate, // convert fiat→USD
-        };
-      }).sort((a, b) => a.time - b.time);
+      const raw: Point[] = Object.keys(d.rates || {})
+        .map((day) => {
+          const rate = d.rates[day][symbol];
+          return { time: parseDay(day), value: 1 / rate }; // fiat→USD
+        })
+        .sort((a, b) => a.time - b.time);
 
       return smoothFiat(raw, days);
     };
 
-    // -----------------------------
-    // FETCH BOTH SERIES
-    // -----------------------------
+    // ---------------------------------------------
+    // Fetch both series
+    // ---------------------------------------------
     const [Araw, Braw] = await Promise.all([
-      isFiat(base) ? fetchFiat(base.toUpperCase()) : fetchCrypto(base),
-      isFiat(quote) ? fetchFiat(quote.toUpperCase()) : fetchCrypto(quote),
+      isFiat(base) ? fetchFiat(base) : fetchCrypto(base),
+      isFiat(quote) ? fetchFiat(quote) : fetchCrypto(quote),
     ]);
 
-    if (!Araw.length || !Braw.length)
+    if (!Araw.length || !Braw.length) {
       return Response.json({ history: [] });
+    }
 
-    // -----------------------------
-    // ALIGN START TIMES (CRITICAL FIX)
-    // -----------------------------
-    // Begin at the first timestamp BOTH series have data for.
-    const startTs = Math.max(Araw[0].time, Braw[0].time);
+    // ---------------------------------------------
+    // CRYPTO/CRYPTO → INDEX MATCHING (industry standard)
+    // FIAT pairs still use real timestamps, but ratio is index-aligned
+    // ---------------------------------------------
+    const N = Math.min(Araw.length, Braw.length);
+    const merged: Point[] = [];
 
-    const A = Araw.filter(p => p.time >= startTs);
-    const B = Braw.filter(p => p.time >= startTs);
+    for (let i = 0; i < N; i++) {
+      const v = Araw[i].value / Braw[i].value;
+      if (!isFinite(v)) continue;
 
-    if (!A.length || !B.length)
-      return Response.json({ history: [] });
-
-    // -----------------------------
-    // NEAREST-PAST LOOKUP FOR QUOTE
-    // -----------------------------
-    const timesB = B.map(p => p.time);
-    const valuesB = B.map(p => p.value);
-
-    const nearest = (t: number): number => {
-      let lo = 0, hi = timesB.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (timesB[mid] < t) lo = mid + 1;
-        else hi = mid;
-      }
-      return valuesB[lo];
-    };
-
-    // -----------------------------
-    // MERGE USING BASE TIMELINE
-    // -----------------------------
-    const merged: Point[] = A.map(p => ({
-      time: p.time,
-      value: p.value / nearest(p.time),
-    }));
+      // Use base's timestamp to preserve consistent time axis
+      merged.push({
+        time: Araw[i].time,
+        value: v,
+      });
+    }
 
     return Response.json({ history: merged });
-
-  } catch (e) {
-    console.error("History API error:", e);
+  } catch (err) {
+    console.error("History API error:", err);
     return Response.json({ history: [] });
   }
 }
