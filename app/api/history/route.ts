@@ -1,24 +1,20 @@
 // /app/api/history/route.ts
-// FINAL WORKING VERSION — Supports:
-// 1–30D: minute/hourly (from CG minute data)
-// 31–90D: 3h buckets
-// >90D : daily (market_chart daily OK)
+export const revalidate = 300; // 5 min cache
 
-// ---------------------------------
-export const revalidate = 300;
-// ---------------------------------
-
+// -----------------------------
+// TYPES
+// -----------------------------
 interface Point {
   time: number;
   value: number;
 }
 
-interface CGResponse {
-  prices: [number, number][];
-}
-
 interface FrankfurterResponse {
   rates: Record<string, Record<string, number>>;
+}
+
+interface CGResponse {
+  prices: [number, number][];
 }
 
 // -----------------------------
@@ -26,12 +22,10 @@ interface FrankfurterResponse {
 // -----------------------------
 const isFiat = (id: string): boolean => /^[A-Z]{3,5}$/.test(id);
 
-// Daily timestamp parsing
 const parseDay = (day: string): number =>
   Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
 
-// Build YYYY-MM-DD → YYYY-MM-DD window
-function buildDateRange(days: number) {
+function buildDateRange(days: number): { start: string; end: string } {
   const now = new Date();
 
   const end = new Date(
@@ -48,7 +42,7 @@ function buildDateRange(days: number) {
   };
 }
 
-// Smooth fiat weekends
+// Smooth fiat missing days (weekends/holidays)
 function smoothFiat(points: Point[], days: number): Point[] {
   if (!points.length) return [];
 
@@ -65,24 +59,23 @@ function smoothFiat(points: Point[], days: number): Point[] {
 
   for (let i = 0; i <= days; i++) {
     const t = startTs + i * 86400;
-    if (map.has(t)) last = map.get(t)!;
+    if (map.has(t)) {
+      last = map.get(t)!;
+    }
     out.push({ time: t, value: last });
   }
 
   return out;
 }
 
-// --------------------------------------------------
-// FETCH CRYPTO (CoinGecko) — NOW USING YOUR API KEY
-// --------------------------------------------------
+// -----------------------------
+// FETCH CRYPTO (CoinGecko)
+// -----------------------------
 async function fetchCrypto(id: string, days: number): Promise<Point[]> {
-  const url =
-    `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
-    `?vs_currency=usd&days=${days}`;
+  // CRITICAL FIX: precision=full allows >30D data
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}&precision=full`;
 
-  // KEY FIX: always send headers!
   const r = await fetch(url, {
-    cache: "no-store",
     headers: {
       accept: "application/json",
       "x-cg-api-key": process.env.CG_KEY ?? "",
@@ -91,18 +84,18 @@ async function fetchCrypto(id: string, days: number): Promise<Point[]> {
 
   if (!r.ok) return [];
 
-  const j = (await r.json()) as CGResponse;
-  if (!j.prices) return [];
+  const d = (await r.json()) as CGResponse;
+  if (!d.prices) return [];
 
-  return j.prices.map(([ts, price]) => ({
+  return d.prices.map(([ts, price]) => ({
     time: Math.floor(ts / 1000),
     value: price,
   }));
 }
 
-// --------------------------------------------------
-// FETCH FIAT (Frankfurter, USD base daily)
-// --------------------------------------------------
+// -----------------------------
+// FETCH FIAT (Frankfurter)
+// -----------------------------
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   if (symbol === "USD") {
     const now = new Date();
@@ -131,40 +124,41 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   const raw: Point[] = Object.keys(d.rates)
     .map((day) => ({
       time: parseDay(day),
-      value: 1 / d.rates[day][symbol],
+      value: 1 / d.rates[day][symbol], // convert to fiat→USD
     }))
     .sort((a, b) => a.time - b.time);
 
   return smoothFiat(raw, days);
 }
 
-// --------------------------------------------------
-// FIND NEAREST timestamp (for ratio alignment)
-// --------------------------------------------------
+// -------------------------------------
+// FIND NEAREST TIMESTAMP IN B
+// -------------------------------------
 function nearestTimeFactory(times: number[], values: number[]) {
   return function (t: number): number | null {
     let lo = 0;
     let hi = times.length - 1;
-    let best = -1;
+    let bestIndex = -1;
 
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (times[mid] <= t) {
-        best = mid;
+        bestIndex = mid;
         lo = mid + 1;
-      } else hi = mid - 1;
+      } else {
+        hi = mid - 1;
+      }
     }
 
-    return best === -1 ? null : values[best];
+    return bestIndex === -1 ? null : values[bestIndex];
   };
 }
 
-// --------------------------------------------------
-// MAIN HANDLER
-// --------------------------------------------------
+// -----------------------------
+// MAIN ROUTE HANDLER
+// -----------------------------
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-
   const base = searchParams.get("base")!;
   const quote = searchParams.get("quote")!;
   const days = Number(searchParams.get("days") ?? 30);
@@ -175,17 +169,21 @@ export async function GET(req: Request) {
       isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days),
     ]);
 
-    if (!Araw.length || !Braw.length) return Response.json({ history: [] });
+    if (!Araw.length || !Braw.length)
+      return Response.json({ history: [] });
 
     const timesB = Braw.map((p) => p.time);
     const valuesB = Braw.map((p) => p.value);
-    const nearestB = nearestTimeFactory(timesB, valuesB);
+
+    const nearest = nearestTimeFactory(timesB, valuesB);
 
     const merged: Point[] = [];
 
     for (const p of Araw) {
-      const div = nearestB(p.time);
-      if (div === null || div === 0) continue;
+      const div = nearest(p.time);
+      if (div === null) continue;
+      if (div === 0) continue;
+
       merged.push({
         time: p.time,
         value: p.value / div,
