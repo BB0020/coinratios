@@ -1,43 +1,29 @@
 // /app/api/history/route.ts
-// FINAL HYBRID RESOLUTION ENGINE
-// 1–30D  → hourly (bucketized)
-// 31–90D → 3-hour (bucketized)
-// >90D   → daily
+// FINAL – Fully working hybrid: hourly (1–30D), 3h (31–90D), daily (>90D)
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
-// --------------------------------------------------
-// Types
-// --------------------------------------------------
 interface Point {
   time: number;
   value: number;
 }
 
-// --------------------------------------------------
-// Detect fiat
-// --------------------------------------------------
 const isFiat = (s: string) =>
   ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"].includes(s.toLowerCase());
 
-// --------------------------------------------------
-// CG headers (API KEY REQUIRED HERE!)
-// --------------------------------------------------
+// ----------------------------------------------------
+// CoinGecko Headers
+// ----------------------------------------------------
 const CG_HEADERS = {
   accept: "application/json",
   "x-cg-api-key": process.env.CG_KEY ?? "",
   "User-Agent": "coinratios-app",
 };
 
-// --------------------------------------------------
-// Resolve coin ID (no mapping, just lowercase)
-// --------------------------------------------------
-const resolveId = (x: string) => x.toLowerCase();
-
-// --------------------------------------------------
-// Fetch hourly-range raw data
-// --------------------------------------------------
+// ----------------------------------------------------
+// RANGE FETCH – used for ≤ 90D
+// ----------------------------------------------------
 async function fetchRangeRaw(id: string, from: number, to: number) {
   const url =
     `https://api.coingecko.com/api/v3/coins/${id}/market_chart/range` +
@@ -49,15 +35,15 @@ async function fetchRangeRaw(id: string, from: number, to: number) {
   const j = await r.json();
   if (!j.prices) return [];
 
-  return j.prices.map(([ts, val]: [number, number]) => ({
+  return j.prices.map(([ts, val]: any) => ({
     time: Math.floor(ts / 1000),
     value: val,
   }));
 }
 
-// --------------------------------------------------
-// FIXED fetchDaily — NOW SENDS HEADERS!!!
-// --------------------------------------------------
+// ----------------------------------------------------
+// DAILY FETCH – used for >90D
+// ----------------------------------------------------
 async function fetchDaily(id: string, days: number): Promise<Point[]> {
   const url =
     `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
@@ -75,25 +61,33 @@ async function fetchDaily(id: string, days: number): Promise<Point[]> {
   }));
 }
 
-// --------------------------------------------------
-// FIAT daily (Frankfurter)
-// --------------------------------------------------
+// ----------------------------------------------------
+// BUCKETIZER – last sample wins
+// ----------------------------------------------------
+function bucketize(raw: Point[], bucketSize: number): Point[] {
+  const map = new Map<number, number>();
+  for (const p of raw) {
+    const bucket = Math.floor(p.time / bucketSize) * bucketSize;
+    map.set(bucket, p.value);
+  }
+  return [...map.entries()]
+    .map(([time, value]) => ({ time, value }))
+    .sort((a, b) => a.time - b.time);
+}
+
+// ----------------------------------------------------
+// FIAT (Daily Only)
+// ----------------------------------------------------
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   const sym = symbol.toUpperCase();
 
+  // USD = flat 1.0 value
   if (sym === "USD") {
-    const now = new Date();
-    const out: Point[] = [];
-    for (let i = 0; i <= days; i++) {
-      const ts =
-        Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate() - (days - i)
-        ) / 1000;
-      out.push({ time: ts, value: 1 });
-    }
-    return out;
+    const now = Math.floor(Date.now() / 1000);
+    return Array.from({ length: days + 1 }).map((_, i) => ({
+      time: now - (days - i) * 86400,
+      value: 1,
+    }));
   }
 
   const now = new Date();
@@ -122,98 +116,85 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
     .sort((a, b) => a.time - b.time);
 }
 
-// --------------------------------------------------
-// Bucketize irregular timestamps into hourly buckets
-// --------------------------------------------------
-function bucketize(raw: Point[], bucketSize: number): Point[] {
-  const m = new Map<number, number>();
-
-  for (const p of raw) {
-    const bucket = Math.floor(p.time / bucketSize) * bucketSize;
-    m.set(bucket, p.value); // last sample wins
-  }
-
-  return [...m.entries()]
-    .map(([time, value]) => ({ time, value }))
-    .sort((a, b) => a.time - b.time);
-}
-
-// --------------------------------------------------
-// Merge A/B ratio (timestamp-aligned)
-// --------------------------------------------------
+// ----------------------------------------------------
+// MERGE RATIO (A/B)
+// ----------------------------------------------------
 function mergeRatio(A: Point[], B: Point[]): Point[] {
   const L = Math.min(A.length, B.length);
   const out: Point[] = [];
-
   for (let i = 0; i < L; i++) {
     const v = A[i].value / B[i].value;
     if (Number.isFinite(v)) out.push({ time: A[i].time, value: v });
   }
-
   return out;
 }
 
-// --------------------------------------------------
+// ----------------------------------------------------
 // MAIN HANDLER
-// --------------------------------------------------
+// ----------------------------------------------------
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
 
     const base = url.searchParams.get("base")?.toLowerCase();
     const quote = url.searchParams.get("quote")?.toLowerCase();
-    let days = Number(url.searchParams.get("days") ?? 30);
 
-    if (!base || !quote) return Response.json({ history: [] });
+    let days = Number(url.searchParams.get("days"));
     if (!Number.isFinite(days) || days < 1) days = 30;
 
-    const now = Math.floor(Date.now() / 1000);
+    if (!base || !quote) return Response.json({ history: [] });
 
+    const now = Math.floor(Date.now() / 1000);
     let A: Point[] = [];
     let B: Point[] = [];
 
-    // 1–30D → HOURLY
+    // ------------------------------------------------
+    // 1–30 DAYS → TRUE HOURLY (range)
+    // ------------------------------------------------
     if (days <= 30) {
       const from = now - days * 86400;
+
       const rawA = isFiat(base)
         ? await fetchFiat(base, days)
-        : await fetchRangeRaw(resolveId(base), from, now);
+        : await fetchRangeRaw(base, from, now);
+
       const rawB = isFiat(quote)
         ? await fetchFiat(quote, days)
-        : await fetchRangeRaw(resolveId(quote), from, now);
+        : await fetchRangeRaw(quote, from, now);
 
       A = bucketize(rawA, 3600);
       B = bucketize(rawB, 3600);
     }
 
-    // 31–90D → 3-HOUR
-    else if (days <= 90) {
+    // ------------------------------------------------
+    // 31–90 DAYS → 3-HOUR
+    // ------------------------------------------------
+    if (days > 30 && days <= 90) {
       const from = now - days * 86400;
+
       const rawA = isFiat(base)
         ? await fetchFiat(base, days)
-        : await fetchRangeRaw(resolveId(base), from, now);
+        : await fetchRangeRaw(base, from, now);
+
       const rawB = isFiat(quote)
         ? await fetchFiat(quote, days)
-        : await fetchRangeRaw(resolveId(quote), from, now);
+        : await fetchRangeRaw(quote, from, now);
 
-      A = bucketize(rawA, 10800);
+      A = bucketize(rawA, 10800); // 3h
       B = bucketize(rawB, 10800);
     }
 
-    // >90D → DAILY (FIXED)
-    else {
-      A = isFiat(base)
-        ? await fetchFiat(base, days)
-        : await fetchDaily(resolveId(base), days);
-      B = isFiat(quote)
-        ? await fetchFiat(quote, days)
-        : await fetchDaily(resolveId(quote), days);
+    // ------------------------------------------------
+    // > 90 DAYS → DAILY
+    // ------------------------------------------------
+    if (days > 90) {
+      A = isFiat(base) ? await fetchFiat(base, days) : await fetchDaily(base, days);
+      B = isFiat(quote) ? await fetchFiat(quote, days) : await fetchDaily(quote, days);
     }
 
     if (!A.length || !B.length) return Response.json({ history: [] });
 
     return Response.json({ history: mergeRatio(A, B) });
-
   } catch (err) {
     console.error("HISTORY API ERROR:", err);
     return Response.json({ history: [] });
