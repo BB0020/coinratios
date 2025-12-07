@@ -1,31 +1,56 @@
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const key = process.env.CG_KEY;
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const testRange = url.searchParams.get("range") === "1";
 
-  // Check if key exists at backend
+  const key = process.env.CG_KEY ?? null;
   const keyExists = !!key;
 
-  // Try a simple authenticated Coingecko call
-  let ping = null;
-  try {
-    const r = await fetch("https://api.coingecko.com/api/v3/ping", {
+  // Base ping test
+  const pingUrl = "https://api.coingecko.com/api/v3/ping";
+  const ping = await fetch(pingUrl, {
+    headers: {
+      accept: "application/json",
+      "x-cg-api-key": key ?? "",
+    },
+  }).then(r => ({ status: r.status, ok: r.ok }))
+    .catch(e => ({ error: String(e) }));
+
+
+  // ───────────────────────────────────────────────
+  // RANGE TEST (this is what decides everything)
+  // ───────────────────────────────────────────────
+  let rangeResult = null;
+
+  if (testRange) {
+    const from = 1700000000;
+    const to = 1700500000;
+
+    const rangeUrl =
+      `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range` +
+      `?vs_currency=usd&from=${from}&to=${to}`;
+
+    const r = await fetch(rangeUrl, {
       headers: {
+        accept: "application/json",
         "x-cg-api-key": key ?? "",
       },
-      cache: "no-store",
     });
-    ping = {
+
+    const text = await r.text();
+    rangeResult = {
+      url: rangeUrl,
       status: r.status,
-      body: await r.text(),
+      ok: r.ok,
+      bodySample: text.slice(0, 200),
     };
-  } catch (err: any) {
-    ping = { error: String(err) };
   }
 
   return Response.json({
     keyExists,
-    keySample: key ? key.slice(0, 8) + "..." : null,
+    keyPrefix: key ? key.slice(0, 6) : null,
     ping,
+    rangeTest: rangeResult,
   });
 }
