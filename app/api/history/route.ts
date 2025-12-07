@@ -1,6 +1,6 @@
 // /app/api/history/route.ts
-// FINAL VERSION — Correct CG ID Resolution + Hourly/3H/Daily Logic
-// Fully compatible with demo key. Only 1 API call per request.
+// Clean final version — dynamic ID resolution, correct 24H behavior,
+// hourly for ≤90D, 3-hour at 90D, daily for >90D.
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
@@ -10,68 +10,21 @@ interface Point {
   value: number;
 }
 
-const CG_HEADERS = {
-  accept: "application/json",
-  "User-Agent": "coinratios/1.0",
-  "x-cg-api-key": process.env.CG_KEY ?? "",  // DEMO KEY SUPPORTED
-};
-
 const isFiat = (id: string) =>
   ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"].includes(id.toLowerCase());
 
-/* ------------------------------------------------------
-   DIRECT SYMBOL → ID MAP (TOP 250 COINS + COMMON)
-   ------------------------------------------------------ */
-const DIRECT_MAP: Record<string, string> = {
-  btc: "bitcoin",
-  eth: "ethereum",
-  usdt: "tether",
-  usdc: "usd-coin",
-  bnb: "binancecoin",
-  sol: "solana",
-  xrp: "ripple",
-  ada: "cardano",
-  doge: "dogecoin",
-  ton: "the-open-network",
-  dot: "polkadot",
-  avax: "avalanche-2",
-  shib: "shiba-inu",
-  trx: "tron",
-  link: "chainlink",
-  matic: "polygon",
-  uni: "uniswap",
-  etc: "ethereum-classic",
-  ltc: "litecoin",
-  atom: "cosmos",
-  xlm: "stellar",
-  op: "optimism",
-  arb: "arbitrum",
-  inj: "injective-protocol",
-  apt: "aptos",
-  hbar: "hedera-hashgraph",
-  imx: "immutable-x",
-  fil: "filecoin",
-  egld: "elrond-erd-2",
-  bch: "bitcoin-cash",
-  qnt: "quant-network",
-  rune: "thorchain",
-  grt: "the-graph",
-  mkr: "maker",
-  sei: "sei-network",
-  kas: "kaspa",
-  // Add more if needed — simplest system
+const CG_HEADERS = {
+  accept: "application/json",
+  "x-cg-api-key": process.env.CG_KEY ?? "",
+  "User-Agent": "coinratios/1.0",
 };
 
-/* ------------------------------------------------------
-   RESOLVE SYMBOL → COINGECKO ID
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// DYNAMIC SYMBOL → COINGECKO ID RESOLUTION
+// ------------------------------------------------------
 async function resolveId(symbol: string): Promise<string> {
   const sym = symbol.toLowerCase();
 
-  // 1. Fast path (top 250)
-  if (DIRECT_MAP[sym]) return DIRECT_MAP[sym];
-
-  // 2. Full lookup from CG
   const res = await fetch(
     "https://api.coingecko.com/api/v3/coins/list?include_platform=false",
     { headers: CG_HEADERS }
@@ -81,37 +34,38 @@ async function resolveId(symbol: string): Promise<string> {
 
   const list = await res.json();
 
-  // Match by ID
+  // Exact ID match
   let found = list.find((c: any) => c.id.toLowerCase() === sym);
   if (found) return found.id;
 
-  // Match by symbol (fallback)
+  // Match by symbol (btc → bitcoin)
   found = list.find((c: any) => c.symbol.toLowerCase() === sym);
   if (found) return found.id;
 
-  console.warn("‼️ Could not resolve symbol to CoinGecko ID:", sym);
+  console.warn("CG ID not resolved:", sym);
   return sym;
 }
 
-/* ------------------------------------------------------
-   FETCH HOURLY (DAYS ≤ 90)
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// HOURLY DATA (≤ 90 DAYS) w/ 24H FIX
+// ------------------------------------------------------
 async function fetchHourly(symbol: string, days: number): Promise<Point[]> {
   const id = await resolveId(symbol);
+
   const now = Math.floor(Date.now() / 1000);
-  const from = now - days * 86400;
+
+  // 24H fix: always pull 25 hours minimum
+  const from =
+    days === 1
+      ? now - 25 * 3600
+      : now - days * 86400;
 
   const url =
     `https://api.coingecko.com/api/v3/coins/${id}/market_chart/range` +
     `?vs_currency=usd&from=${from}&to=${now}`;
 
   const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
-
-  
-  if (!r.ok) {
-    console.error("CG hourly error", id, r.status);
-    return [];
-  }
+  if (!r.ok) return [];
 
   const j = await r.json();
   if (!j.prices) return [];
@@ -122,26 +76,26 @@ async function fetchHourly(symbol: string, days: number): Promise<Point[]> {
   }));
 }
 
-/* ------------------------------------------------------
-   3-HOUR DOWNSAMPLE (CMC STYLE)
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// 3-HOUR DOWNSAMPLE (ONLY FOR 90D)
+// ------------------------------------------------------
 function downsample3H(raw: Point[]): Point[] {
-  const bucketSec = 3 * 3600;
-  const buckets = new Map<number, Point>();
+  const bucket = 3 * 3600;
+  const out = new Map<number, Point>();
 
   for (const p of raw) {
-    const bucket = Math.floor(p.time / bucketSec) * bucketSec;
-    buckets.set(bucket, p); // LAST PRICE wins
+    const t = Math.floor(p.time / bucket) * bucket;
+    out.set(t, p);
   }
 
-  return [...buckets.entries()]
-    .map(([time, p]) => ({ time, value: p.value }))
+  return [...out.entries()]
+    .map(([t, p]) => ({ time: t, value: p.value }))
     .sort((a, b) => a.time - b.time);
 }
 
-/* ------------------------------------------------------
-   DAILY FETCH (DAYS > 90)
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// DAILY FOR > 90D
+// ------------------------------------------------------
 async function fetchDaily(symbol: string, days: number): Promise<Point[]> {
   const id = await resolveId(symbol);
 
@@ -161,9 +115,9 @@ async function fetchDaily(symbol: string, days: number): Promise<Point[]> {
   }));
 }
 
-/* ------------------------------------------------------
-   FIAT DAILY
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// FIAT DAILY
+// ------------------------------------------------------
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   const f = symbol.toUpperCase();
 
@@ -196,23 +150,24 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
     .sort((a, b) => a.time - b.time);
 }
 
-/* ------------------------------------------------------
-   MERGE RATIO
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// MERGE RATIO (A/B)
+// ------------------------------------------------------
 function mergeRatio(A: Point[], B: Point[]): Point[] {
-  const len = Math.min(A.length, B.length);
+  const L = Math.min(A.length, B.length);
   const out: Point[] = [];
 
-  for (let i = 0; i < len; i++) {
-    const ratio = A[i].value / B[i].value;
-    if (Number.isFinite(ratio)) out.push({ time: A[i].time, value: ratio });
+  for (let i = 0; i < L; i++) {
+    const v = A[i].value / B[i].value;
+    if (Number.isFinite(v)) out.push({ time: A[i].time, value: v });
   }
+
   return out;
 }
 
-/* ------------------------------------------------------
-   MAIN HANDLER
-   ------------------------------------------------------ */
+// ------------------------------------------------------
+// MAIN HANDLER
+// ------------------------------------------------------
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -226,19 +181,19 @@ export async function GET(req: Request) {
     let A: Point[] = [];
     let B: Point[] = [];
 
-    // CASE 1 — HOURLY (≤ 90 DAYS)
+    // HOURLY (≤ 90D)
     if (days <= 90) {
       A = isFiat(base) ? await fetchFiat(base, days) : await fetchHourly(base, days);
       B = isFiat(quote) ? await fetchFiat(quote, days) : await fetchHourly(quote, days);
 
-      // Special Rule: 90D → 3-hour downsample
+      // 3H for exactly 90D
       if (days === 90) {
         if (!isFiat(base)) A = downsample3H(A);
         if (!isFiat(quote)) B = downsample3H(B);
       }
     }
 
-    // CASE 2 — DAILY (> 90 DAYS)
+    // DAILY (> 90D)
     if (days > 90) {
       A = isFiat(base) ? await fetchFiat(base, days) : await fetchDaily(base, days);
       B = isFiat(quote) ? await fetchFiat(quote, days) : await fetchDaily(quote, days);
@@ -246,9 +201,8 @@ export async function GET(req: Request) {
 
     if (!A.length || !B.length) return Response.json({ history: [] });
 
-    const merged = mergeRatio(A, B);
+    return Response.json({ history: mergeRatio(A, B) });
 
-    return Response.json({ history: merged });
   } catch (err) {
     console.error("history API error:", err);
     return Response.json({ history: [] });
