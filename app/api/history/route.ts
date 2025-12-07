@@ -1,7 +1,7 @@
 // /app/api/history/route.ts
 // Fully patched version (safe for 1250 coins, fiat, crypto, mixed)
 // ---------------------------------------------------------------
-
+export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
 interface Point {
