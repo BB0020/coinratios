@@ -1,25 +1,31 @@
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const symbol = url.searchParams.get("symbol") ?? "btc";
+export async function GET() {
+  const key = process.env.CG_KEY;
 
-  // Use the same resolution logic your history API uses
-  const realIdUrl = `https://api.coingecko.com/api/v3/coins/${symbol}/market_chart/range?vs_currency=usd&from=${Math.floor(Date.now()/1000)-86400}&to=${Math.floor(Date.now()/1000)}`;
+  // Check if key exists at backend
+  const keyExists = !!key;
 
-  const r = await fetch(realIdUrl, {
-    headers: {
-      "x-cg-api-key": process.env.CG_KEY ?? "MISSING_KEY",
-    }
-  });
-
-  const text = await r.text();
+  // Try a simple authenticated Coingecko call
+  let ping = null;
+  try {
+    const r = await fetch("https://api.coingecko.com/api/v3/ping", {
+      headers: {
+        "x-cg-api-key": key ?? "",
+      },
+      cache: "no-store",
+    });
+    ping = {
+      status: r.status,
+      body: await r.text(),
+    };
+  } catch (err: any) {
+    ping = { error: String(err) };
+  }
 
   return Response.json({
-    keyLoaded: process.env.CG_KEY ? "YES" : "NO",
-    status: r.status,
-    symbol,
-    responseText: text.slice(0, 200) + "...",
-    realIdUrl,
+    keyExists,
+    keySample: key ? key.slice(0, 8) + "..." : null,
+    ping,
   });
 }
