@@ -15,7 +15,7 @@ interface Point {
 ---------------------------------------- */
 const CG_HEADERS = {
   "User-Agent": "coinratios/1.0",
-  "x-cg-demo-api-key": process.env.CG_KEY ?? "",
+  "x-cg-pro-api-key": process.env.CG_KEY ?? "",
 };
 
 /* ----------------------------------------
