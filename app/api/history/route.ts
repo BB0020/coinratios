@@ -1,5 +1,7 @@
 // /app/api/history/route.ts
-export const revalidate = 300;
+
+export const dynamic = "force-dynamic"; // Always run on server
+export const revalidate = 60;           // ISR cache for 60s
 
 interface Point {
   time: number;
@@ -9,24 +11,34 @@ interface Point {
 const isFiat = (id: string) => /^[A-Z]{3,5}$/.test(id);
 
 // Parse YYYY-MM-DD → UTC midnight timestamp
-const parseDay = (d: string) =>
-  Math.floor(new Date(`${d}T00:00:00Z`).getTime() / 1000);
+const parseDay = (day: string) =>
+  Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
 
-// Build correct date range
+// Build UTC date range for Frankfurter
 function buildDateRange(days: number) {
   const now = new Date();
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days));
+
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  ));
+
+  const start = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - days
+  ));
+
   return {
     start: start.toISOString().slice(0, 10),
     end: end.toISOString().slice(0, 10),
   };
 }
 
-// Smooth weekend/holiday fiat gaps
-function smoothFiat(raw: Point[], days: number): Point[] {
-  if (!raw.length) return [];
-  raw.sort((a, b) => a.time - b.time);
+// Smooth fiat gaps (Google Finance / Yahoo Finance style)
+function smoothFiat(points: Point[], days: number): Point[] {
+  if (!points.length) return [];
 
   const now = new Date();
   const startTs = Date.UTC(
@@ -35,115 +47,127 @@ function smoothFiat(raw: Point[], days: number): Point[] {
     now.getUTCDate() - days
   ) / 1000;
 
-  const map = new Map(raw.map(p => [p.time, p.value]));
   const out: Point[] = [];
-  let last = raw[0].value;
+  const map = new Map(points.map(p => [p.time, p.value]));
+
+  let last = points[0].value;
 
   for (let i = 0; i <= days; i++) {
     const t = startTs + i * 86400;
+
     if (map.has(t)) {
       last = map.get(t)!;
+      out.push({ time: t, value: last });
+    } else {
+      // Weekend/holiday → repeat last known rate
+      out.push({ time: t, value: last });
     }
-    out.push({ time: t, value: last });
   }
 
   return out;
 }
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const base = searchParams.get("base")!;
-  const quote = searchParams.get("quote")!;
-  const days = Number(searchParams.get("days") ?? 7);
+// -----------------------------
+// FETCH CRYPTO (CoinGecko)
+// -----------------------------
+async function fetchCrypto(id: string, days: number): Promise<Point[]> {
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const r = await fetch(url, { cache: "no-store" });
+  const d = await r.json();
 
-  try {
-    // Fetch crypto from CoinGecko
-    const fetchCrypto = async (id: string): Promise<Point[]> => {
-      const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-      const r = await fetch(url);
-      const d = await r.json();
-      return (d.prices ?? []).map((p: [number, number]) => ({
-        time: Math.floor(p[0] / 1000),
-        value: p[1],
-      }));
-    };
+  return (d.prices ?? []).map((p: [number, number]) => ({
+    time: Math.floor(p[0] / 1000),
+    value: p[1],
+  }));
+}
 
-    // Fetch fiat from Frankfurter
-    const fetchFiat = async (symbol: string): Promise<Point[]> => {
-      if (symbol === "USD") {
-        // USD baseline = 1
-        const now = new Date();
-        const arr: Point[] = [];
-        for (let i = 0; i <= days; i++) {
-          const t =
-            Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i) /
-            1000;
-          arr.push({ time: t, value: 1 });
-        }
-        return arr.reverse();
-      }
-
-      const { start, end } = buildDateRange(days);
-      const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`;
-      const r = await fetch(url);
-      const d = await r.json();
-
-      const raw: Point[] = Object.keys(d.rates || {}).map(day => ({
-        time: parseDay(day),
-        value: 1 / d.rates[day][symbol],
-      }));
-
-      return smoothFiat(raw, days);
-    };
-
-    // Fetch both series
-    const [A, B] = await Promise.all([
-      isFiat(base) ? fetchFiat(base) : fetchCrypto(base),
-      isFiat(quote) ? fetchFiat(quote) : fetchCrypto(quote),
-    ]);
-
-    if (!A.length || !B.length) return Response.json({ history: [] });
-
-    // Build nearest-past lookup for B
-    const timesB = B.map(p => p.time);
-    const valuesB = B.map(p => p.value);
-
-    const nearestPastIndex = (t: number) => {
-      let lo = 0,
-        hi = timesB.length - 1,
-        best = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (timesB[mid] <= t) {
-          best = mid;
-          lo = mid + 1;
-        } else {
-          hi = mid - 1;
-        }
-      }
-      return best === -1 ? null : best;
-    };
-
-    // --------------------------
-    // FIX: Skip invalid points until first valid match
-    // --------------------------
-    const merged: Point[] = [];
-    let started = false;
-
-    for (const p of A) {
-      const idx = nearestPastIndex(p.time);
-      if (idx === null) continue;
-
-      started = true;
-      merged.push({
-        time: p.time,
-        value: p.value / valuesB[idx],
-      });
+// -----------------------------
+// FETCH FIAT (Frankfurter)
+// -----------------------------
+async function fetchFiat(sym: string, days: number): Promise<Point[]> {
+  if (sym === "USD") {
+    const now = new Date();
+    const arr: Point[] = [];
+    for (let i = 0; i <= days; i++) {
+      const t = Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() - i
+      ) / 1000;
+      arr.push({ time: t, value: 1 });
     }
+    return arr.reverse();
+  }
 
-    if (!started || !merged.length) {
+  const { start, end } = buildDateRange(days);
+  const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=${sym}`;
+
+  const r = await fetch(url, { cache: "no-store" });
+  const d = await r.json();
+
+  const raw: Point[] = Object.keys(d.rates || {}).map(day => {
+    const rate = d.rates[day][sym]; // USD→fiat
+    return {
+      time: parseDay(day),
+      value: 1 / rate, // convert fiat→USD
+    };
+  }).sort((a, b) => a.time - b.time);
+
+  return smoothFiat(raw, days);
+}
+
+// -----------------------------
+// MERGE BY INDEX (INDUSTRY STANDARD)
+// -----------------------------
+function mergeSeries(A: Point[], B: Point[]): Point[] {
+  const len = Math.min(A.length, B.length);
+  const out: Point[] = [];
+
+  for (let i = 0; i < len; i++) {
+    const ratio = A[i].value / B[i].value;
+
+    if (!Number.isFinite(ratio)) continue;
+
+    // Use A's timestamp (they are same length & aligned)
+    out.push({
+      time: A[i].time,
+      value: ratio,
+    });
+  }
+
+  return out;
+}
+
+// -----------------------------
+// MAIN API HANDLER
+// -----------------------------
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const base = searchParams.get("base")!;
+    const quote = searchParams.get("quote")!;
+    const days = Number(searchParams.get("days") ?? 30);
+
+    if (!base || !quote) {
       return Response.json({ history: [] });
     }
+
+    // -----------------------------
+    // FETCH BOTH SERIES IN PARALLEL
+    // -----------------------------
+    const [Araw, Braw] = await Promise.all([
+      isFiat(base) ? fetchFiat(base, days) : fetchCrypto(base, days),
+      isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days),
+    ]);
+
+    if (!Araw.length || !Braw.length) {
+      return Response.json({ history: [] });
+    }
+
+    // -----------------------------
+    // MERGE BY INDEX
+    // -----------------------------
+    const merged = mergeSeries(Araw, Braw);
 
     return Response.json({ history: merged });
   } catch (e) {
