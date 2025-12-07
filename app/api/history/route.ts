@@ -1,7 +1,8 @@
 // /app/api/history/route.ts
-// Fully patched version (safe for 1250 coins, fiat, crypto, mixed)
+// Fully patched version with dynamic runtime + CG_KEY debug log
 // ---------------------------------------------------------------
-export const dynamic = "force-dynamic";
+
+export const dynamic = "force-dynamic";   // <-- IMPORTANT: Prevent static caching
 export const revalidate = 300;
 
 interface Point {
@@ -128,7 +129,7 @@ function expandFiat(fiat: Point[], crypto: Point[]): Point[] {
 }
 
 /* ----------------------------------------
-   5. Merge series by timestamp (bulletproof)
+   5. Merge series by timestamp
 ---------------------------------------- */
 function mergeByTime(A: Point[], B: Point[]) {
   const out: Point[] = [];
@@ -148,6 +149,9 @@ function mergeByTime(A: Point[], B: Point[]) {
 ---------------------------------------- */
 export async function GET(req: Request) {
   try {
+    // 🔥 DEBUG LOG (remove later)
+    console.log("CG_KEY:", process.env.CG_KEY);
+
     const url = new URL(req.url);
     const base = url.searchParams.get("base")!;
     const quote = url.searchParams.get("quote")!;
@@ -177,7 +181,7 @@ export async function GET(req: Request) {
 
     return Response.json({ history: merged });
   } catch (err) {
-    console.error("API /history error", err);
+    console.error("API /history error:", err);
     return Response.json({ history: [] });
   }
 }
