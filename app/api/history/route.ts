@@ -1,8 +1,8 @@
 // /app/api/history/route.ts
-// Fully patched version with dynamic runtime + CG_KEY debug log
-// ---------------------------------------------------------------
+// Final working version for CoinGecko hourly data with Pro/Demo API keys
+// ----------------------------------------------------------------------
 
-export const dynamic = "force-dynamic";   // <-- IMPORTANT: Prevent static caching
+export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
 interface Point {
@@ -11,28 +11,28 @@ interface Point {
 }
 
 /* ----------------------------------------
-   0. FIX: COINGECKO HEADERS (REQUIRED)
+   HEADERS FOR COINGECKO PRO/DEMO API
 ---------------------------------------- */
 const CG_HEADERS = {
+  accept: "application/json",
   "User-Agent": "coinratios/1.0",
   "x-cg-pro-api-key": process.env.CG_KEY ?? "",
 };
 
 /* ----------------------------------------
-   1. Resolve correct CoinGecko coin ID
+   Resolve correct CoinGecko ID
 ---------------------------------------- */
 async function resolveId(sym: string): Promise<string> {
   const r = await fetch(
     "https://api.coingecko.com/api/v3/coins/list?include_platform=false",
     { headers: CG_HEADERS }
   );
-
   if (!r.ok) return sym;
 
   const list = await r.json();
 
-  const direct = list.find((c: any) => c.id === sym);
-  if (direct) return direct.id;
+  const exact = list.find((c: any) => c.id === sym);
+  if (exact) return exact.id;
 
   const bySymbol = list.find(
     (c: any) => c.symbol.toLowerCase() === sym.toLowerCase()
@@ -45,7 +45,7 @@ const isFiat = (id: string) =>
   ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"].includes(id.toLowerCase());
 
 /* ----------------------------------------
-   2. Crypto fetch (CoinGecko)
+   Fetch Crypto Market Chart (HOURLY)
 ---------------------------------------- */
 async function fetchCrypto(id: string, days: number): Promise<Point[]> {
   const realId = await resolveId(id);
@@ -53,11 +53,15 @@ async function fetchCrypto(id: string, days: number): Promise<Point[]> {
   const url = `https://api.coingecko.com/api/v3/coins/${realId}/market_chart?vs_currency=usd&days=${days}`;
 
   const r = await fetch(url, {
-    cache: "no-store",
+    method: "GET",
     headers: CG_HEADERS,
+    cache: "no-store",
   });
 
-  if (!r.ok) return [];
+  if (!r.ok) {
+    console.error("CoinGecko Error", r.status, await r.text());
+    return [];
+  }
 
   const j = await r.json();
   if (!j.prices) return [];
@@ -69,7 +73,7 @@ async function fetchCrypto(id: string, days: number): Promise<Point[]> {
 }
 
 /* ----------------------------------------
-   3. Fiat fetch (Frankfurter)
+   Fetch Fiat Data (Daily)
 ---------------------------------------- */
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   const sym = symbol.toUpperCase();
@@ -104,7 +108,7 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   const raw: Point[] = Object.keys(j.rates)
     .map((day) => ({
       time: Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000),
-      value: 1 / j.rates[day][sym], // USD→X to X→USD
+      value: 1 / j.rates[day][sym],
     }))
     .sort((a, b) => a.time - b.time);
 
@@ -112,7 +116,7 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
 }
 
 /* ----------------------------------------
-   4. Normalize fiat to match crypto timeline
+   Expand fiat to match crypto timestamps
 ---------------------------------------- */
 function expandFiat(fiat: Point[], crypto: Point[]): Point[] {
   if (fiat.length === 0) return fiat;
@@ -121,37 +125,37 @@ function expandFiat(fiat: Point[], crypto: Point[]): Point[] {
   let last = fiat[0].value;
 
   return crypto.map((c) => {
-    const t = c.time - (c.time % 86400); // align to midnight
-    if (map.has(t)) last = map.get(t)!;
+    const aligned = c.time - (c.time % 86400);
+    if (map.has(aligned)) last = map.get(aligned)!;
 
     return { time: c.time, value: last };
   });
 }
 
 /* ----------------------------------------
-   5. Merge series by timestamp
+   Merge two time series safely
 ---------------------------------------- */
 function mergeByTime(A: Point[], B: Point[]) {
   const out: Point[] = [];
   const len = Math.min(A.length, B.length);
 
   for (let i = 0; i < len; i++) {
-    const ratio = A[i].value / B[i].value;
-    if (Number.isFinite(ratio)) {
-      out.push({ time: A[i].time, value: ratio });
+    const v = A[i].value / B[i].value;
+    if (Number.isFinite(v)) {
+      out.push({
+        time: A[i].time,
+        value: v,
+      });
     }
   }
   return out;
 }
 
 /* ----------------------------------------
-   6. MAIN HANDLER
+   MAIN API HANDLER
 ---------------------------------------- */
 export async function GET(req: Request) {
   try {
-    // 🔥 DEBUG LOG (remove later)
-    console.log("CG_KEY:", process.env.CG_KEY);
-
     const url = new URL(req.url);
     const base = url.searchParams.get("base")!;
     const quote = url.searchParams.get("quote")!;
@@ -164,8 +168,7 @@ export async function GET(req: Request) {
       isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days),
     ]);
 
-    if (!Araw.length || !Braw.length)
-      return Response.json({ history: [] });
+    if (!Araw.length || !Braw.length) return Response.json({ history: [] });
 
     const A =
       isFiat(base) && !isFiat(quote)
