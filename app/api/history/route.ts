@@ -1,209 +1,162 @@
 // /app/api/history/route.ts
-export const revalidate = 300; // 5 min cache
+export const revalidate = 300;
 
 interface Point {
   time: number;
   value: number;
 }
 
-interface CGRange {
-  prices: [number, number][];
+const CG_HEADERS = {
+  accept: "application/json",
+  "x-cg-api-key": process.env.CG_KEY ?? "",
+  "User-Agent": "coinratios-app",
+};
+
+// ---------------------------------------------
+// ID Normalization (must use full CG IDs)
+// ---------------------------------------------
+function resolveId(symbol: string): string {
+  symbol = symbol.toLowerCase();
+  if (symbol === "btc") return "bitcoin";
+  if (symbol === "eth") return "ethereum";
+  if (symbol === "sol") return "solana";
+  if (symbol === "ada") return "cardano";
+  if (symbol === "bnb") return "binancecoin";
+  // fallback — assume the frontend already uses CG ID
+  return symbol;
 }
 
-interface CGDaily {
-  prices: [number, number][];
-}
+const isFiat = (s: string) =>
+  ["usd", "eur", "gbp", "cad", "jpy", "chf", "aud"].includes(s.toLowerCase());
 
-interface FrankfurterResponse {
-  rates: Record<string, Record<string, number>>;
-}
+// ---------------------------------------------
+// RANGE API — only used for 1 day
+// ---------------------------------------------
+async function fetchRange1D(id: string): Promise<Point[]> {
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - 86400;
 
-const isFiat = (id: string) => /^[A-Z]{3,5}$/.test(id);
-
-// --------------------------------------
-// FETCH RAW RANGE (minute-ish data)
-// --------------------------------------
-async function fetchRange(id: string, from: number, to: number): Promise<Point[]> {
   const url =
     `https://api.coingecko.com/api/v3/coins/${id}/market_chart/range` +
-    `?vs_currency=usd&from=${from}&to=${to}`;
+    `?vs_currency=usd&from=${from}&to=${now}`;
 
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: CG_HEADERS });
   if (!r.ok) return [];
 
-  const j = (await r.json()) as CGRange;
-  if (!j.prices) return [];
-
-  return j.prices.map(([ts, price]) => ({
+  const j = await r.json();
+  return j.prices.map(([ts, v]: any) => ({
     time: Math.floor(ts / 1000),
-    value: price,
+    value: v,
   }));
 }
 
-// --------------------------------------
-// FETCH DAILY (CoinGecko)
-// --------------------------------------
-async function fetchDaily(id: string, days: number): Promise<Point[]> {
+// ---------------------------------------------
+// MARKET_CHART (hourly or daily)
+// ---------------------------------------------
+async function fetchMarketChart(id: string, days: number): Promise<Point[]> {
   const url =
     `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
     `?vs_currency=usd&days=${days}`;
 
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: CG_HEADERS });
   if (!r.ok) return [];
 
-  const j = (await r.json()) as CGDaily;
+  const j = await r.json();
   if (!j.prices) return [];
 
-  return j.prices.map(([ts, price]) => ({
+  return j.prices.map(([ts, v]: any) => ({
     time: Math.floor(ts / 1000),
-    value: price,
+    value: v,
   }));
 }
 
-// --------------------------------------
-// FETCH FIAT (Frankfurter)
-// --------------------------------------
-function parseDay(day: string) {
-  return Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
-}
+// ---------------------------------------------
+// Bucket helper
+// ---------------------------------------------
+function bucketize(raw: Point[], bucketSec: number): Point[] {
+  const map = new Map<number, number>();
 
-async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
-  if (symbol === "USD") {
-    // flat baseline
-    const now = new Date();
-    const arr: Point[] = [];
-    for (let i = 0; i <= days; i++) {
-      const ts =
-        Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate() - i
-        ) / 1000;
-      arr.push({ time: ts, value: 1 });
-    }
-    return arr.reverse();
+  for (const p of raw) {
+    const t = Math.floor(p.time / bucketSec) * bucketSec;
+    map.set(t, p.value); // last tick wins
   }
 
-  const now = new Date();
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)
-  );
-
-  const s = start.toISOString().slice(0, 10);
-  const e = end.toISOString().slice(0, 10);
-
-  const url = `https://api.frankfurter.app/${s}..${e}?from=USD&to=${symbol}`;
-  const r = await fetch(url);
-  if (!r.ok) return [];
-
-  const j = (await r.json()) as FrankfurterResponse;
-
-  const raw = Object.keys(j.rates)
-    .map((day) => ({
-      time: parseDay(day),
-      value: 1 / j.rates[day][symbol],
-    }))
+  return [...map.entries()]
+    .map(([time, value]) => ({ time, value }))
     .sort((a, b) => a.time - b.time);
-
-  // Smooth missing days (weekends)
-  const out: Point[] = [];
-  const map = new Map(raw.map((p) => [p.time, p.value]));
-
-  let last = raw.length ? raw[0].value : 1;
-  const startTs = parseDay(s);
-
-  for (let i = 0; i <= days; i++) {
-    const t = startTs + i * 86400;
-    if (map.has(t)) last = map.get(t)!;
-    out.push({ time: t, value: last });
-  }
-
-  return out;
 }
 
-// --------------------------------------
-// MATCH POINTS BY NEAREST TIMESTAMP
-// --------------------------------------
-function nearestFactory(times: number[], values: number[]) {
-  return function (t: number) {
-    let lo = 0;
-    let hi = times.length - 1;
-    let idx = -1;
-
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (times[mid] <= t) {
-        idx = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-    return idx === -1 ? null : values[idx];
-  };
-}
-
-// --------------------------------------
+// ---------------------------------------------
 // MAIN HANDLER
-// --------------------------------------
+// ---------------------------------------------
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const base = searchParams.get("base")!;
-  const quote = searchParams.get("quote")!;
-  const days = Number(searchParams.get("days") ?? 30);
+  const url = new URL(req.url);
+  const base = url.searchParams.get("base")?.toLowerCase();
+  const quote = url.searchParams.get("quote")?.toLowerCase();
+  let days = Number(url.searchParams.get("days") ?? 30);
+
+  if (!base || !quote) return Response.json({ history: [] });
+  if (!Number.isFinite(days) || days < 1) days = 30;
 
   const now = Math.floor(Date.now() / 1000);
+
+  // Resolve CoinGecko IDs
+  const idA = resolveId(base);
+  const idB = resolveId(quote);
 
   let A: Point[] = [];
   let B: Point[] = [];
 
-  try {
-    // ------------------------------------------------
-    // CASE 1 — 1D, 7D, 30D → use /range (hourly behavior)
-    // ------------------------------------------------
-    if (days <= 30) {
-      const from = now - days * 86400;
-
-      A = isFiat(base)
-        ? await fetchFiat(base, days)
-        : await fetchRange(base.toLowerCase(), from, now);
-
-      B = isFiat(quote)
-        ? await fetchFiat(quote, days)
-        : await fetchRange(quote.toLowerCase(), from, now);
-    }
-
-    // ------------------------------------------------
-    // CASE 2 — > 30D → use daily CG
-    // ------------------------------------------------
-    if (days > 30) {
-      A = isFiat(base)
-        ? await fetchFiat(base, days)
-        : await fetchDaily(base.toLowerCase(), days);
-
-      B = isFiat(quote)
-        ? await fetchFiat(quote, days)
-        : await fetchDaily(quote.toLowerCase(), days);
-    }
-
-    if (!A.length || !B.length) return Response.json({ history: [] });
-
-    const timesB = B.map((p) => p.time);
-    const valuesB = B.map((p) => p.value);
-    const near = nearestFactory(timesB, valuesB);
-
-    const merged: Point[] = [];
-
-    for (const p of A) {
-      const div = near(p.time);
-      if (!div || div === 0) continue;
-      merged.push({ time: p.time, value: p.value / div });
-    }
-
-    return Response.json({ history: merged });
-  } catch (e) {
-    console.error("History API error:", e);
-    return Response.json({ history: [] });
+  // -------------------------
+  // 1 DAY → minute-level
+  // -------------------------
+  if (days === 1) {
+    A = await fetchRange1D(idA);
+    B = await fetchRange1D(idB);
   }
+
+  // -------------------------
+  // 2–30 DAY → hourly
+  // -------------------------
+  if (days > 1 && days <= 30) {
+    A = await fetchMarketChart(idA, days);
+    B = await fetchMarketChart(idB, days);
+
+    A = bucketize(A, 3600);
+    B = bucketize(B, 3600);
+  }
+
+  // -------------------------
+  // 31–90 DAY → 3-hour
+  // -------------------------
+  if (days > 30 && days <= 90) {
+    A = await fetchMarketChart(idA, days);
+    B = await fetchMarketChart(idB, days);
+
+    A = bucketize(A, 10800);
+    B = bucketize(B, 10800);
+  }
+
+  // -------------------------
+  // >90 DAY → daily (no buckets)
+  // -------------------------
+  if (days > 90) {
+    A = await fetchMarketChart(idA, days);
+    B = await fetchMarketChart(idB, days);
+  }
+
+  if (!A.length || !B.length) return Response.json({ history: [] });
+
+  // Merge ratio
+  const L = Math.min(A.length, B.length);
+  const out = [];
+
+  for (let i = 0; i < L; i++) {
+    const v = A[i].value / B[i].value;
+    if (Number.isFinite(v)) {
+      out.push({ time: A[i].time, value: v });
+    }
+  }
+
+  return Response.json({ history: out });
 }
