@@ -1,157 +1,169 @@
 // /app/api/history/route.ts
 export const dynamic = "force-dynamic";
-export const revalidate = 300; // cache 5 minutes
+export const revalidate = 0;
 
-// --------------------------------------
-// TYPES
-// --------------------------------------
-interface Point {
-  time: number;
-  value: number;
+// ---------------------------------------
+// Helpers
+// ---------------------------------------
+function isFiat(x: string) {
+  return /^[A-Z]{3,5}$/.test(x);
 }
 
-const CG_HEADERS = {
-  accept: "application/json",
-  "x-cg-api-key": process.env.CG_KEY ?? "",
-  "User-Agent": "coinratios-app",
-};
+function msToSec(ms: number) {
+  return Math.floor(ms / 1000);
+}
 
-// --------------------------------------
-// LIVE PRICE (CG simple/price)
-// --------------------------------------
-async function fetchLivePrice(id: string, quote: string): Promise<number | null> {
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=${quote}`;
-  const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
+// ---------------------------------------
+// Fetch live price for appending final point
+// ---------------------------------------
+async function fetchLivePrice(id: string): Promise<number | null> {
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd`;
+
+  const r = await fetch(url, {
+    headers: { "x-cg-pro-api-key": process.env.CG_API_KEY || "" },
+    cache: "no-store",
+  });
+
   if (!r.ok) return null;
 
   const j = await r.json();
-  if (!j[id] || !j[id][quote]) return null;
-
-  return Number(j[id][quote]);
+  const val = j?.[id]?.usd ?? null;
+  return typeof val === "number" ? val : null;
 }
 
-// --------------------------------------
-// RAW RANGE — 5-MINUTE DATA (1D ONLY)
-// --------------------------------------
-async function fetchRangeRaw(id: string, from: number, to: number): Promise<Point[]> {
-  const url =
-    `https://api.coingecko.com/api/v3/coins/${id}/market_chart/range` +
-    `?vs_currency=usd&from=${from}&to=${to}`;
+// ---------------------------------------
+// Fetch crypto history by days with resolution rules
+// ---------------------------------------
+async function fetchCrypto(id: string, days: number) {
+  if (days === 1 || days === 7 || days === 30) {
+    // RAW minute (1D) or hourly (7D/30D)
+    const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
 
-  const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
-  if (!r.ok) return [];
+    const r = await fetch(url, {
+      headers: { "x-cg-pro-api-key": process.env.CG_API_KEY || "" },
+      cache: "no-store",
+    });
 
-  const j = await r.json();
-  if (!j.prices) return [];
+    if (!r.ok) return [];
 
-  return j.prices.map(([ts, val]: [number, number]) => ({
-    time: Math.floor(ts / 1000),
-    value: val,
-  }));
-}
-
-// --------------------------------------
-// HOURLY/Daily (market_chart)
-// --------------------------------------
-async function fetchMarketChart(id: string, days: number): Promise<Point[]> {
-  const url =
-    `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
-    `?vs_currency=usd&days=${days}`;
-
-  const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
-  if (!r.ok) return [];
-
-  const j = await r.json();
-  if (!j.prices) return [];
-
-  return j.prices.map(([ts, val]: [number, number]) => ({
-    time: Math.floor(ts / 1000),
-    value: val,
-  }));
-}
-
-// --------------------------------------
-// BUCKET (for hourly + 3h)
-// --------------------------------------
-function bucket(raw: Point[], bucketSec: number): Point[] {
-  const out = new Map<number, number>();
-  for (const p of raw) {
-    const t = Math.floor(p.time / bucketSec) * bucketSec;
-    out.set(t, p.value); // last value wins
+    const j = await r.json();
+    return j.prices.map((p: any) => ({
+      time: msToSec(p[0]),
+      value: p[1],
+    }));
   }
-  return [...out.entries()]
-    .map(([time, value]) => ({ time, value }))
-    .sort((a, b) => a.time - b.time);
+
+  if (days === 90 || days === 365) {
+    // DAILY ONLY (CG limitation)
+    const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+
+    const r = await fetch(url, {
+      headers: { "x-cg-pro-api-key": process.env.CG_API_KEY || "" },
+      cache: "no-store",
+    });
+
+    if (!r.ok) return [];
+
+    const j = await r.json();
+
+    // daily values from price array: take every 24h
+    const raw = j.prices.map((p: any) => ({
+      time: msToSec(p[0]),
+      value: p[1],
+    }));
+
+    // Downsample to 1-per-day consistently
+    const out = [];
+    let lastDay = -1;
+
+    for (const p of raw) {
+      const day = Math.floor(p.time / 86400);
+      if (day !== lastDay) {
+        out.push(p);
+        lastDay = day;
+      }
+    }
+
+    return out;
+  }
+
+  // fallback
+  return [];
 }
 
-// --------------------------------------
-// MAIN ROUTE HANDLER
-// --------------------------------------
+// ---------------------------------------
+// Main API Handler
+// ---------------------------------------
 export async function GET(req: Request) {
   try {
-    const url = new URL(req.url);
-    const base = url.searchParams.get("base")?.toLowerCase();
-    const quote = url.searchParams.get("quote")?.toLowerCase() ?? "usd";
-    let days = Number(url.searchParams.get("days") ?? "30");
+    const { searchParams } = new URL(req.url);
+    const base = searchParams.get("base");
+    const quote = searchParams.get("quote");
+    const days = Number(searchParams.get("days") || 30);
 
-    if (!base) return Response.json({ history: [] });
-    if (!Number.isFinite(days) || days < 1) days = 30;
+    if (!base || !quote) return Response.json({ history: [] });
 
-    const now = Math.floor(Date.now() / 1000);
+    // Fetch ID list from /api/coins
+    const coinRes = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/coins`, {
+      cache: "force-cache",
+    });
+    const coinJson = await coinRes.json();
+    const list = coinJson.coins || [];
 
-    let raw: Point[] = [];
-
-    // ----------------------------
-    // CASE 1 — 1 DAY => RAW (5m)
-    // ----------------------------
-    if (days === 1) {
-      const from = now - 86400;
-      raw = await fetchRangeRaw(base, from, now);
+    function resolveId(symbolOrId: string) {
+      const s = symbolOrId.toLowerCase();
+      const found = list.find((c: any) => c.id === s || c.symbol === s);
+      return found ? found.id : s;
     }
 
-    // ----------------------------
-    // CASE 2 — 7D or 30D => HOURLY
-    // ----------------------------
-    else if (days === 7 || days === 30) {
-      const hourly = await fetchMarketChart(base, days);
-      raw = bucket(hourly, 3600); // hourly output
+    const baseId = resolveId(base);
+    const quoteId = resolveId(quote);
+
+    const [rawA, rawB] = await Promise.all([
+      isFiat(base) ? [] : fetchCrypto(baseId, days),
+      isFiat(quote) ? [] : fetchCrypto(quoteId, days),
+    ]);
+
+    if (!rawA.length || !rawB.length) {
+      return Response.json({ history: [] });
     }
 
-    // ----------------------------
-    // CASE 3 — 90D => DAILY (CG limitation)
-    // ----------------------------
-    else if (days === 90) {
-      const daily = await fetchMarketChart(base, 90);
-      raw = daily; // already 1 point per day
+    // build time map for quote
+    const mapB = new Map(rawB.map((p: any) => [p.time, p.value]));
+
+    // nearest timestamp in B (simple backward search)
+    function nearestB(t: number) {
+      let best = null;
+      for (const [ts, val] of mapB.entries()) {
+        if (ts <= t) best = val;
+      }
+      return best;
     }
 
-    // ----------------------------
-    // CASE 4 — >90 => DAILY
-    // ----------------------------
-    else {
-      const daily = await fetchMarketChart(base, days);
-      raw = daily;
+    const merged = [];
+    for (const p of rawA) {
+      const div = nearestB(p.time);
+      if (div) merged.push({ time: p.time, value: p.value / div });
     }
 
-    if (!raw.length) return Response.json({ history: [] });
+    // ---------------------------------------------------
+    // Append live price at end (A_live / B_live)
+    // ---------------------------------------------------
+    const [liveA, liveB] = await Promise.all([
+      fetchLivePrice(baseId),
+      fetchLivePrice(quoteId),
+    ]);
 
-    // -----------------------------------------
-    // APPEND CURRENT REAL-TIME PRICE
-    // -----------------------------------------
-    const live = await fetchLivePrice(base, quote);
-    if (live !== null) {
-      raw.push({
-        time: now,
-        value: live,
+    if (liveA && liveB) {
+      merged.push({
+        time: Math.floor(Date.now() / 1000),
+        value: liveA / liveB,
       });
     }
 
-    // final sort + send
-    raw.sort((a, b) => a.time - b.time);
-
-    return Response.json({ history: raw });
+    return Response.json({ history: merged });
   } catch (err) {
-    console.error("HISTORY API ERROR:", err);
+    console.error("History API Error:", err);
     return Response.json({ history: [] });
   }
 }
