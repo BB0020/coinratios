@@ -1,20 +1,14 @@
 // /app/api/history/route.ts
 export const dynamic = "force-dynamic";
-export const revalidate = 120; // cache per 2 min
+export const revalidate = 300; // cache 5 minutes
 
+// --------------------------------------
+// TYPES
+// --------------------------------------
 interface Point {
   time: number;
   value: number;
 }
-
-//
-// -----------------------------------------------------
-// Helpers
-// -----------------------------------------------------
-const isFiat = (s: string) =>
-  ["USD", "EUR", "GBP", "CAD", "JPY", "CHF", "AUD"].includes(
-    s.toUpperCase()
-  );
 
 const CG_HEADERS = {
   accept: "application/json",
@@ -22,49 +16,29 @@ const CG_HEADERS = {
   "User-Agent": "coinratios-app",
 };
 
-function mergeRatio(A: Point[], B: Point[]): Point[] {
-  const L = Math.min(A.length, B.length);
-  const out: Point[] = [];
-  for (let i = 0; i < L; i++) {
-    if (!B[i].value) continue;
-    const v = A[i].value / B[i].value;
-    if (Number.isFinite(v))
-      out.push({ time: A[i].time, value: v });
-  }
-  return out;
-}
-
-//
-// -----------------------------------------------------
-// Fetch crypto (daily) for >90D
-// -----------------------------------------------------
-async function fetchDaily(symbol: string, days: number): Promise<Point[]> {
-  const url =
-    `https://api.coingecko.com/api/v3/coins/${symbol}/market_chart` +
-    `?vs_currency=usd&days=${days}`;
-
-  const r = await fetch(url, { headers: CG_HEADERS });
-  if (!r.ok) return [];
+// --------------------------------------
+// LIVE PRICE (CG simple/price)
+// --------------------------------------
+async function fetchLivePrice(id: string, quote: string): Promise<number | null> {
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=${quote}`;
+  const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
+  if (!r.ok) return null;
 
   const j = await r.json();
-  if (!j.prices) return [];
+  if (!j[id] || !j[id][quote]) return null;
 
-  return j.prices.map(([ts, val]: any) => ({
-    time: Math.floor(ts / 1000),
-    value: val,
-  }));
+  return Number(j[id][quote]);
 }
 
-//
-// -----------------------------------------------------
-// Fetch hourly-range crypto (1–90D)
-// -----------------------------------------------------
-async function fetchRange(symbol: string, from: number, to: number): Promise<Point[]> {
+// --------------------------------------
+// RAW RANGE — 5-MINUTE DATA (1D ONLY)
+// --------------------------------------
+async function fetchRangeRaw(id: string, from: number, to: number): Promise<Point[]> {
   const url =
-    `https://api.coingecko.com/api/v3/coins/${symbol}/market_chart/range` +
+    `https://api.coingecko.com/api/v3/coins/${id}/market_chart/range` +
     `?vs_currency=usd&from=${from}&to=${to}`;
 
-  const r = await fetch(url, { headers: CG_HEADERS });
+  const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
   if (!r.ok) return [];
 
   const j = await r.json();
@@ -76,136 +50,108 @@ async function fetchRange(symbol: string, from: number, to: number): Promise<Poi
   }));
 }
 
-//
-// -----------------------------------------------------
-// Fetch fiat (daily only)
-// -----------------------------------------------------
-async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
-  const sym = symbol.toUpperCase();
-
-  // USD baseline = flat 1
-  if (sym === "USD") {
-    const now = Math.floor(Date.now() / 1000);
-    return Array.from({ length: days + 1 }, (_, i) => ({
-      time: now - (days - i) * 86400,
-      value: 1,
-    }));
-  }
-
-  const now = new Date();
-  const end = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  );
-  const start = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)
-  );
-
+// --------------------------------------
+// HOURLY/Daily (market_chart)
+// --------------------------------------
+async function fetchMarketChart(id: string, days: number): Promise<Point[]> {
   const url =
-    `https://api.frankfurter.app/${start.toISOString().slice(0, 10)}..` +
-    `${end.toISOString().slice(0, 10)}?from=USD&to=${sym}`;
+    `https://api.coingecko.com/api/v3/coins/${id}/market_chart` +
+    `?vs_currency=usd&days=${days}`;
 
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: CG_HEADERS, cache: "no-store" });
   if (!r.ok) return [];
 
   const j = await r.json();
-  if (!j.rates) return [];
+  if (!j.prices) return [];
 
-  const pts: Point[] = Object.keys(j.rates)
-    .map((d) => ({
-      time: Math.floor(new Date(`${d}T00:00:00Z`).getTime() / 1000),
-      value: 1 / j.rates[d][sym],
-    }))
-    .sort((a, b) => a.time - b.time);
-
-  return pts;
+  return j.prices.map(([ts, val]: [number, number]) => ({
+    time: Math.floor(ts / 1000),
+    value: val,
+  }));
 }
 
-//
-// -----------------------------------------------------
-// MAIN HANDLER
-// -----------------------------------------------------
+// --------------------------------------
+// BUCKET (for hourly + 3h)
+// --------------------------------------
+function bucket(raw: Point[], bucketSec: number): Point[] {
+  const out = new Map<number, number>();
+  for (const p of raw) {
+    const t = Math.floor(p.time / bucketSec) * bucketSec;
+    out.set(t, p.value); // last value wins
+  }
+  return [...out.entries()]
+    .map(([time, value]) => ({ time, value }))
+    .sort((a, b) => a.time - b.time);
+}
+
+// --------------------------------------
+// MAIN ROUTE HANDLER
+// --------------------------------------
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const base = url.searchParams.get("base")?.toLowerCase();
-    const quote = url.searchParams.get("quote")?.toLowerCase();
-    let days = Number(url.searchParams.get("days") ?? 30);
+    const quote = url.searchParams.get("quote")?.toLowerCase() ?? "usd";
+    let days = Number(url.searchParams.get("days") ?? "30");
 
-    if (!base || !quote) return Response.json({ history: [] });
+    if (!base) return Response.json({ history: [] });
     if (!Number.isFinite(days) || days < 1) days = 30;
-    days = Math.floor(days);
 
     const now = Math.floor(Date.now() / 1000);
-    const from = now - days * 86400;
 
-    let A: Point[] = [];
-    let B: Point[] = [];
+    let raw: Point[] = [];
 
-    //
-    // -----------------------------------------------------
-    // Case 1: 1–30 Days → Hourly (range)
-    // -----------------------------------------------------
-    //
-    if (days <= 30) {
-      const rawA = isFiat(base)
-        ? await fetchFiat(base, days)
-        : await fetchRange(base, from, now);
-
-      const rawB = isFiat(quote)
-        ? await fetchFiat(quote, days)
-        : await fetchRange(quote, from, now);
-
-      A = rawA;
-      B = rawB;
+    // ----------------------------
+    // CASE 1 — 1 DAY => RAW (5m)
+    // ----------------------------
+    if (days === 1) {
+      const from = now - 86400;
+      raw = await fetchRangeRaw(base, from, now);
     }
 
-    //
-    // -----------------------------------------------------
-    // Case 2: 31–90 Days → Hourly fetch → display every 3h
-    // -----------------------------------------------------
-    //
-    if (days > 30 && days <= 90) {
-      const rawA = isFiat(base)
-        ? await fetchFiat(base, days)
-        : await fetchRange(base, from, now);
-
-      const rawB = isFiat(quote)
-        ? await fetchFiat(quote, days)
-        : await fetchRange(quote, from, now);
-
-      rawA.sort((a, b) => a.time - b.time);
-      rawB.sort((a, b) => a.time - b.time);
-
-      const L = Math.min(rawA.length, rawB.length);
-      const hourlyA = rawA.slice(-L);
-      const hourlyB = rawB.slice(-L);
-
-      // Take every 3rd point = EXACT 3h spacing
-      A = hourlyA.filter((_, i) => i % 3 === 0);
-      B = hourlyB.filter((_, i) => i % 3 === 0);
+    // ----------------------------
+    // CASE 2 — 7D or 30D => HOURLY
+    // ----------------------------
+    else if (days === 7 || days === 30) {
+      const hourly = await fetchMarketChart(base, days);
+      raw = bucket(hourly, 3600); // hourly output
     }
 
-    //
-    // -----------------------------------------------------
-    // Case 3: >90 Days → Daily
-    // -----------------------------------------------------
-    //
-    if (days > 90) {
-      A = isFiat(base)
-        ? await fetchFiat(base, days)
-        : await fetchDaily(base, days);
-
-      B = isFiat(quote)
-        ? await fetchFiat(quote, days)
-        : await fetchDaily(quote, days);
+    // ----------------------------
+    // CASE 3 — 90D => DAILY (CG limitation)
+    // ----------------------------
+    else if (days === 90) {
+      const daily = await fetchMarketChart(base, 90);
+      raw = daily; // already 1 point per day
     }
 
-    if (!A.length || !B.length)
-      return Response.json({ history: [] });
+    // ----------------------------
+    // CASE 4 — >90 => DAILY
+    // ----------------------------
+    else {
+      const daily = await fetchMarketChart(base, days);
+      raw = daily;
+    }
 
-    return Response.json({ history: mergeRatio(A, B) });
+    if (!raw.length) return Response.json({ history: [] });
+
+    // -----------------------------------------
+    // APPEND CURRENT REAL-TIME PRICE
+    // -----------------------------------------
+    const live = await fetchLivePrice(base, quote);
+    if (live !== null) {
+      raw.push({
+        time: now,
+        value: live,
+      });
+    }
+
+    // final sort + send
+    raw.sort((a, b) => a.time - b.time);
+
+    return Response.json({ history: raw });
   } catch (err) {
-    console.error("History API Error:", err);
+    console.error("HISTORY API ERROR:", err);
     return Response.json({ history: [] });
   }
 }
