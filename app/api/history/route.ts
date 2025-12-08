@@ -1,10 +1,9 @@
-// /app/api/history/route.ts
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
-// ---------------------------------------------------
+// -------------------------------------------
 // TYPES
-// ---------------------------------------------------
+// -------------------------------------------
 interface Point {
   time: number;
   value: number;
@@ -18,9 +17,9 @@ interface CGResponse {
   prices: [number, number][];
 }
 
-// ---------------------------------------------------
+// -------------------------------------------
 // HELPERS
-// ---------------------------------------------------
+// -------------------------------------------
 const isFiat = (id: string): boolean => /^[A-Z]{3,5}$/.test(id);
 
 const parseDay = (day: string): number =>
@@ -28,24 +27,34 @@ const parseDay = (day: string): number =>
 
 function buildDateRange(days: number) {
   const now = new Date();
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days));
+
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)
+  );
 
   return {
     start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10)
+    end: end.toISOString().slice(0, 10),
   };
 }
 
-// Smooth fiat when days missing
+// Smooth fiat missing dates
 function smoothFiat(points: Point[], days: number): Point[] {
   if (!points.length) return [];
+
   const now = new Date();
-  const startTs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days) / 1000;
+  const startTs =
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days) /
+    1000;
 
-  const map = new Map(points.map(p => [p.time, p.value]));
-
+  const map = new Map<number, number>();
+  points.forEach((p) => map.set(p.time, p.value));
   const out: Point[] = [];
+
   let last = points[0].value;
 
   for (let i = 0; i <= days; i++) {
@@ -53,16 +62,15 @@ function smoothFiat(points: Point[], days: number): Point[] {
     if (map.has(t)) last = map.get(t)!;
     out.push({ time: t, value: last });
   }
+
   return out;
 }
 
-// ---------------------------------------------------
-// FETCH CRYPTO FROM COINGECKO
-// ---------------------------------------------------
+// -------------------------------------------
+// CRYPTO FETCH (CoinGecko)
+// -------------------------------------------
 async function fetchCrypto(id: string, days: number): Promise<Point[]> {
-  // For 1D → fetch 5-min data
-  let url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
   const r = await fetch(url);
   if (!r.ok) return [];
 
@@ -71,30 +79,33 @@ async function fetchCrypto(id: string, days: number): Promise<Point[]> {
 
   return d.prices.map(([ts, price]) => ({
     time: Math.floor(ts / 1000),
-    value: price
+    value: price,
   }));
 }
 
-// ---------------------------------------------------
-// FETCH FIAT (Frankfurter)
-// ---------------------------------------------------
+// -------------------------------------------
+// FIAT FETCH (Frankfurter)
+// -------------------------------------------
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   if (symbol === "USD") {
     const now = new Date();
-    return Array.from({ length: days + 1 }).map((_, i) => ({
-      time:
+    const out: Point[] = [];
+
+    for (let i = 0; i <= days; i++) {
+      const ts =
         Date.UTC(
           now.getUTCFullYear(),
           now.getUTCMonth(),
-          now.getUTCDate() - (days - i)
-        ) / 1000,
-      value: 1
-    }));
+          now.getUTCDate() - i
+        ) / 1000;
+
+      out.push({ time: ts, value: 1 });
+    }
+    return out.reverse();
   }
 
   const { start, end } = buildDateRange(days);
   const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`;
-
   const r = await fetch(url);
   if (!r.ok) return [];
 
@@ -104,100 +115,117 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   const raw: Point[] = Object.keys(d.rates)
     .map((day) => ({
       time: parseDay(day),
-      value: 1 / d.rates[day][symbol]
+      value: 1 / d.rates[day][symbol],
     }))
     .sort((a, b) => a.time - b.time);
 
   return smoothFiat(raw, days);
 }
 
-// ---------------------------------------------------
-// 3-HOUR DOWNSAMPLER (Option A: keep first point)
-// ---------------------------------------------------
-function downsample3H(points: Point[]): Point[] {
+// -------------------------------------------
+// EXACT 3-HOUR SAMPLING FOR 90D (~720 points)
+// -------------------------------------------
+function to3HourExact(points: Point[]): Point[] {
   if (!points.length) return [];
 
-  const THREE_H = 3 * 3600;
+  const sorted = [...points].sort((a, b) => a.time - b.time);
+  const THREE_HOURS = 3 * 3600;
+  const start = sorted[0].time;
+  const end = sorted[sorted.length - 1].time;
+
   const out: Point[] = [];
 
-  let currentBucketStart = points[0].time;
+  for (let t = start; t <= end; t += THREE_HOURS) {
+    // last close <= t
+    let close: Point | null = null;
 
-  for (const p of points) {
-    if (p.time >= currentBucketStart) {
-      out.push(p);                 // keep FIRST point in each 3-hour block
-      currentBucketStart += THREE_H;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      if (sorted[i].time <= t) {
+        close = sorted[i];
+        break;
+      }
     }
+
+    if (close) out.push({ time: t, value: close.value });
   }
 
   return out;
 }
 
-// ---------------------------------------------------
-// NEAREST MATCH
-// ---------------------------------------------------
+// -------------------------------------------
+// NEAREST VALUE MATCHING (ratio merge)
+// -------------------------------------------
 function nearestTimeFactory(times: number[], values: number[]) {
   return function (t: number): number | null {
     let lo = 0;
     let hi = times.length - 1;
-    let bestIndex = -1;
+    let best = -1;
 
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
       if (times[mid] <= t) {
-        bestIndex = mid;
+        best = mid;
         lo = mid + 1;
       } else {
         hi = mid - 1;
       }
     }
 
-    return bestIndex === -1 ? null : values[bestIndex];
+    return best === -1 ? null : values[best];
   };
 }
 
-// ---------------------------------------------------
-// MAIN ROUTE
-// ---------------------------------------------------
+// -------------------------------------------
+// MAIN API ROUTE
+// -------------------------------------------
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
+
     const base = url.searchParams.get("base")!;
     const quote = url.searchParams.get("quote")!;
     const days = Number(url.searchParams.get("days") ?? 30);
 
-    // fetch raw series
+    // Fetch raw A/B series
     const [rawA, rawB] = await Promise.all([
       isFiat(base) ? fetchFiat(base, days) : fetchCrypto(base, days),
-      isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days)
+      isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days),
     ]);
 
     if (!rawA.length || !rawB.length) {
       return Response.json({ history: [] });
     }
 
-    // APPLY 3-HOUR DOWNSAMPLE ONLY WHEN days = 90
-    const seriesA = days === 90 ? downsample3H(rawA) : rawA;
-    const seriesB = days === 90 ? downsample3H(rawB) : rawB;
+    // Apply 3-hour sampling only for 90D
+    const A = days === 90 ? to3HourExact(rawA) : rawA;
+    const B = days === 90 ? to3HourExact(rawB) : rawB;
 
-    if (!seriesA.length || !seriesB.length) {
-      return Response.json({ history: [] });
-    }
+    if (!A.length || !B.length) return Response.json({ history: [] });
 
-    // Map for nearest lookup
-    const mapB: Map<number, number> = new Map(seriesB.map(p => [p.time, p.value]));
-    const timesB = Array.from(mapB.keys()).sort((a,b)=>a-b);
-    const valuesB = timesB.map(t => mapB.get(t)!);
+    // Prepare nearest-match for merging
+    const mapB: Map<number, number> = new Map(
+      B.map((p: Point) => [p.time, p.value])
+    );
+
+    const timesB = Array.from(mapB.keys()).sort((a, b) => a - b);
+    const valuesB = timesB.map((t) => mapB.get(t)!);
+
     const nearest = nearestTimeFactory(timesB, valuesB);
 
-    // Build ratio series
-    const result: Point[] = [];
-    for (const p of seriesA) {
-      const divisor = nearest(p.time);
-      if (!divisor) continue;
-      result.push({ time: p.time, value: p.value / divisor });
+    // Build final ratio series
+    const merged: Point[] = [];
+
+    for (const p of A) {
+      const div = nearest(p.time);
+      if (!div) continue;
+
+      merged.push({
+        time: p.time,
+        value: p.value / div,
+      });
     }
 
-    return Response.json({ history: result });
+    return Response.json({ history: merged });
   } catch (err) {
     console.error("History API Error:", err);
     return Response.json({ history: [] });
