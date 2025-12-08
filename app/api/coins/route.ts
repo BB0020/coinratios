@@ -1,14 +1,25 @@
 // /app/api/coins/route.ts
-export const revalidate = 3600; // 1 hour server cache
+export const revalidate = 3600;
+
+// Build symbol → ids[]
+function buildSymbolIndex(list: any[]) {
+  const out: Record<string, string[]> = {};
+  for (const c of list) {
+    const sym = c.symbol.toUpperCase();
+    if (!out[sym]) out[sym] = [];
+    out[sym].push(c.id);
+  }
+  return out;
+}
 
 export async function GET() {
   try {
-    const res = await fetch(
-      "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250",
-      { next: { revalidate: 3600 } } // extra layer of caching
-    );
+    const url =
+      "https://api.coingecko.com/api/v3/coins/markets" +
+      "?vs_currency=usd&order=market_cap_desc&per_page=250";
 
-    if (!res.ok) return Response.json({ coins: [] });
+    const res = await fetch(url, { next: { revalidate: 3600 } });
+    if (!res.ok) return Response.json({ coins: [], index: {} });
 
     const data = await res.json();
 
@@ -20,8 +31,13 @@ export async function GET() {
       type: "crypto",
     }));
 
-    return Response.json({ coins: cryptoList });
+    const index = buildSymbolIndex(data);
+
+    return Response.json({
+      coins: cryptoList,
+      index, // <– not used yet, safe to ignore
+    });
   } catch (e) {
-    return Response.json({ coins: [] });
+    return Response.json({ coins: [], index: {} });
   }
 }
