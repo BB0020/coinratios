@@ -72,7 +72,13 @@ function smoothFiat(points: Point[], days: number): Point[] {
 // -----------------------------
 async function fetchCrypto(id: string, days: number): Promise<Point[]> {
   const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-  const r = await fetch(url);
+
+  const r = await fetch(url, {
+    headers: {
+      "x-cg-demo-api-key": process.env.CG_KEY ?? "",
+    },
+  });
+
   if (!r.ok) return [];
 
   const d = (await r.json()) as CGResponse;
@@ -88,6 +94,7 @@ async function fetchCrypto(id: string, days: number): Promise<Point[]> {
 // FIAT FETCH (Frankfurter)
 // -----------------------------
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
+  // USD is special case to avoid API call
   if (symbol === "USD") {
     const now = new Date();
     const arr: Point[] = [];
@@ -125,10 +132,10 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
 }
 
 // -----------------------------
-// NEAREST MATCH
+// NEAREST MATCH (typed + safe)
 // -----------------------------
 function nearestTimeFactory(times: number[], values: number[]) {
-  return function (t: number): number | null {
+  return (t: number): number | null => {
     let lo = 0;
     let hi = times.length - 1;
     let bestIndex = -1;
@@ -167,11 +174,9 @@ export async function GET(req: Request) {
       return Response.json({ history: [] });
     }
 
-    // ---------------------
-    // Typed Map (fix for build error)
-    // ---------------------
+    // Build typed map
     const mapB: Map<number, number> = new Map(
-      rawB.map((p: { time: number; value: number }) => [p.time, p.value])
+      rawB.map((p) => [p.time, p.value])
     );
 
     const timesB = Array.from(mapB.keys()).sort((a, b) => a - b);
@@ -179,12 +184,11 @@ export async function GET(req: Request) {
 
     const nearest = nearestTimeFactory(timesB, valuesB);
 
-    // Merge into ratio series
     const merged: Point[] = [];
 
     for (const p of rawA) {
       const div = nearest(p.time);
-      if (!div) continue;
+      if (div == null) continue;
 
       merged.push({
         time: p.time,
