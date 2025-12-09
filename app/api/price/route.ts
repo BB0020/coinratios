@@ -1,40 +1,59 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 15;
 
-const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
+// REAL fiat whitelist (CoinGecko-supported)
+const FIAT = new Set([
+  "USD","EUR","GBP","JPY","CAD","AUD","CHF","CNY","SEK","NZD",
+  "INR","BRL","RUB","HKD","SGD","MXN","ZAR"
+]);
+
+const isFiat = (s: string) => FIAT.has(s.toUpperCase());
+
+const CG = "https://api.coingecko.com/api/v3/simple/price";
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    let base = (url.searchParams.get("base") || "").toLowerCase();
-    let quote = (url.searchParams.get("quote") || "usd").toLowerCase();
+    let base = url.searchParams.get("base") || "";
+    let quote = url.searchParams.get("quote") || "usd";
 
-    // USD:USD
+    base = base.toLowerCase();
+    quote = quote.toLowerCase();
+
+    // 0) USD direct
     if (base === "usd" && quote === "usd") {
       return Response.json({ price: 1 });
     }
 
-    // Fiat conversion (USD per fiat)
-    if (isFiat(base.toUpperCase())) {
+    // 1) FIAT branch (ONLY real fiats)
+    if (isFiat(base)) {
       const r = await fetch(
         `https://api.frankfurter.app/latest?from=USD&to=${base.toUpperCase()}`
       );
       const j = await r.json();
       const rate = j.rates?.[base.toUpperCase()];
-      return Response.json({ price: rate ? 1 / rate : null });
+      if (!rate) return Response.json({ price: null });
+      return Response.json({ price: 1 / rate });
     }
 
-    // Crypto price from CoinGecko
-    const r = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${base}&vs_currencies=${quote}`
-    );
+    // 2) Crypto branch
+    const cgUrl = `${CG}?ids=${base}&vs_currencies=${quote}`;
+    const r = await fetch(cgUrl);
 
-    if (!r.ok) return Response.json({ price: null });
+    if (!r.ok) {
+      console.error("CG error:", r.status);
+      return Response.json({ price: null });
+    }
 
     const j = await r.json();
     const price = j?.[base]?.[quote];
 
-    return Response.json({ price: typeof price === "number" ? price : null });
+    if (typeof price !== "number") {
+      console.error("CG no price for:", base, j);
+      return Response.json({ price: null });
+    }
+
+    return Response.json({ price });
   } catch (err) {
     console.error("Price API error:", err);
     return Response.json({ price: null });
