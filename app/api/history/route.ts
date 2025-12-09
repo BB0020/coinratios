@@ -1,16 +1,35 @@
-// /app/api/history/route.ts
-import { getSymbolToIdMap } from "../_coinmap";
-
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
-interface Point { time: number; value: number; }
+interface Point {
+  time: number;
+  value: number;
+}
 
-const FIAT = new Set([
-  "USD","EUR","GBP","JPY","CAD","AUD","CHF","CNY","SEK","NZD",
-  "INR","BRL","RUB","HKD","SGD","MXN","ZAR"
-]);
+const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
 
+// Fetch /api/coins map to resolve e.g. SOL → solana
+async function resolveId(sym: string): Promise<string | null> {
+  const r = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/coins`);
+  const j = await r.json();
+  return j.map?.[sym.toUpperCase()] || null;
+}
+
+// Fetch crypto raw from CoinGecko
+async function fetchCryptoRaw(id: string, days: number): Promise<Point[]> {
+  const r = await fetch(
+    `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`
+  );
+  if (!r.ok) return [];
+  const j = await r.json();
+
+  return (j.prices || []).map((p: [number, number]) => ({
+    time: Math.floor(p[0] / 1000),
+    value: p[1],
+  }));
+}
+
+// Fetch fiat (daily)
 async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
   if (symbol === "USD") {
     const now = Math.floor(Date.now() / 1000);
@@ -19,113 +38,101 @@ async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
       value: 1,
     }));
   }
-  const end = new Date();
-  const start = new Date();
-  start.setUTCDate(start.getUTCDate() - days);
 
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days))
+    .toISOString()
+    .slice(0, 10);
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    .toISOString()
+    .slice(0, 10);
+
   const r = await fetch(
-    `https://api.frankfurter.app/${fmt(start)}..${fmt(end)}?from=USD&to=${symbol}`
+    `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`
   );
-  if (!r.ok) return [];
   const j = await r.json();
-  if (!j.rates) return [];
 
-  return Object.entries(j.rates).map(([day, rate]: [string, any]) => ({
-    time: Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000),
-    value: 1 / rate[symbol],
-  })).sort((a, b) => a.time - b.time);
-}
-
-async function fetchCrypto(cgId: string, days: number): Promise<Point[]> {
-  const r = await fetch(
-    `https://api.coingecko.com/api/v3/coins/${cgId}/market_chart?vs_currency=usd&days=${days}`
-  );
-  if (!r.ok) return [];
-  const j = await r.json();
-  if (!j.prices) return [];
-  return j.prices.map(([t, v]: [number, number]) => ({
-    time: Math.floor(t / 1000),
-    value: v,
+  const pts = Object.keys(j.rates || []).map((d) => ({
+    time: Math.floor(new Date(`${d}T00:00:00Z`).getTime() / 1000),
+    value: 1 / j.rates[d][symbol],
   }));
+
+  return pts.sort((a, b) => a.time - b.time);
 }
 
-function downsample3H(points: Point[]): Point[] {
-  const out: Point[] = [];
-  let last = points[0].time - 3 * 3600;
-  for (const p of points) {
-    if (p.time - last >= 3 * 3600) {
-      out.push(p);
-      last = p.time;
+// Bin into regular intervals
+function binSeries(raw: Point[], intervalSec: number): Point[] {
+  if (raw.length === 0) return [];
+
+  const start = raw[0].time;
+  const end = raw[raw.length - 1].time;
+
+  const bins: Point[] = [];
+  let binTime = start;
+  let lastValue = raw[0].value;
+  let i = 0;
+
+  while (binTime <= end) {
+    while (i < raw.length && raw[i].time <= binTime) {
+      lastValue = raw[i].value;
+      i++;
     }
+    bins.push({ time: binTime, value: lastValue });
+    binTime += intervalSec;
   }
-  return out;
+
+  return bins;
 }
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const rawBase = (url.searchParams.get("base") || "").toUpperCase();
-    const rawQuote = (url.searchParams.get("quote") || "").toUpperCase();
-    const days = Number(url.searchParams.get("days") || "30");
+    const baseSym = url.searchParams.get("base")?.toUpperCase() || "";
+    const quoteSym = url.searchParams.get("quote")?.toUpperCase() || "";
+    const days = Number(url.searchParams.get("days") || 30);
 
-    const map = await getSymbolToIdMap();
+    // Resolve IDs
+    const baseId = isFiat(baseSym) ? baseSym : await resolveId(baseSym);
+    const quoteId = isFiat(quoteSym) ? quoteSym : await resolveId(quoteSym);
 
-    const base = FIAT.has(rawBase)
-      ? rawBase
-      : map[rawBase];
-    const quote = FIAT.has(rawQuote)
-      ? rawQuote
-      : map[rawQuote];
+    if (!baseId || !quoteId) return Response.json({ history: [] });
 
-    if (!base || !quote) {
-      console.error("Unknown symbol in history:", rawBase, rawQuote);
-      return Response.json({ history: [] });
-    }
-
+    // Fetch series
     const [rawA, rawB] = await Promise.all([
-      FIAT.has(rawBase) ? fetchFiat(rawBase, days) : fetchCrypto(base, days),
-      FIAT.has(rawQuote) ? fetchFiat(rawQuote, days) : fetchCrypto(quote, days),
+      isFiat(baseSym) ? fetchFiat(baseSym, days) : fetchCryptoRaw(baseId, days),
+      isFiat(quoteSym) ? fetchFiat(quoteSym, days) : fetchCryptoRaw(quoteId, days),
     ]);
 
-    if (!rawA.length || !rawB.length) {
-      return Response.json({ history: [] });
-    }
+    if (!rawA.length || !rawB.length) return Response.json({ history: [] });
 
-    let A = rawA;
-    let B = rawB;
+    // Determine interval
+    let interval = 3600; // default 1h
 
-    if (days === 90) {
-      A = downsample3H(A);
-      B = downsample3H(B);
-    }
+    if (days <= 1) interval = 300; // 5-min
+    else if (days <= 7) interval = 3600; // 1-h
+    else if (days <= 30) interval = 3600; // 1-h
+    else if (days <= 90) interval = 10800; // 3-h
+    else interval = 86400; // 1-d
 
-    const timesB = B.map(p => p.time);
-    const valuesB = B.map(p => p.value);
-    const nearest = (t: number): number | null => {
-      let lo = 0, hi = timesB.length - 1, best = -1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (timesB[mid] <= t) {
-          best = mid;
-          lo = mid + 1;
-        } else hi = mid - 1;
+    const a = binSeries(rawA, interval);
+    const b = binSeries(rawB, interval);
+
+    const out: Point[] = [];
+    let i = 0;
+    let j = 0;
+    let lastB = b[0].value;
+
+    for (const p of a) {
+      while (j < b.length && b[j].time <= p.time) {
+        lastB = b[j].value;
+        j++;
       }
-      return best >= 0 ? valuesB[best] : null;
-    };
-
-    const history: Point[] = [];
-    for (const p of A) {
-      const divisor = nearest(p.time);
-      if (divisor) {
-        history.push({ time: p.time, value: p.value / divisor });
-      }
+      if (lastB) out.push({ time: p.time, value: p.value / lastB });
     }
 
-    return Response.json({ history });
-
-  } catch (e) {
-    console.error("History route error:", e);
+    return Response.json({ history: out });
+  } catch (err) {
+    console.error("History API error:", err);
     return Response.json({ history: [] });
   }
 }
