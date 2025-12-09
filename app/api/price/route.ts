@@ -1,61 +1,52 @@
+import { loadSymbolMap } from "../_coinmap";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 15;
 
-// REAL fiat whitelist (CoinGecko-supported)
-const FIAT = new Set([
-  "USD","EUR","GBP","JPY","CAD","AUD","CHF","CNY","SEK","NZD",
-  "INR","BRL","RUB","HKD","SGD","MXN","ZAR"
-]);
-
-const isFiat = (s: string) => FIAT.has(s.toUpperCase());
-
-const CG = "https://api.coingecko.com/api/v3/simple/price";
+const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    let base = url.searchParams.get("base") || "";
-    let quote = url.searchParams.get("quote") || "usd";
+    let base = (url.searchParams.get("base") || "").toUpperCase();
+    let quote = (url.searchParams.get("quote") || "USD").toUpperCase();
 
-    base = base.toLowerCase();
-    quote = quote.toLowerCase();
+    const map = await loadSymbolMap();
 
-    // 0) USD direct
-    if (base === "usd" && quote === "usd") {
+    // USD special case
+    if (base === "USD" && quote === "USD") {
       return Response.json({ price: 1 });
     }
 
-    // 1) FIAT branch (ONLY real fiats)
+    // Fiat → USD (Frankfurter)
     if (isFiat(base)) {
       const r = await fetch(
-        `https://api.frankfurter.app/latest?from=USD&to=${base.toUpperCase()}`
+        `https://api.frankfurter.app/latest?from=USD&to=${base}`
       );
       const j = await r.json();
-      const rate = j.rates?.[base.toUpperCase()];
+      const rate = j.rates?.[base];
       if (!rate) return Response.json({ price: null });
       return Response.json({ price: 1 / rate });
     }
 
-    // 2) Crypto branch
-    const cgUrl = `${CG}?ids=${base}&vs_currencies=${quote}`;
-    const r = await fetch(cgUrl);
-
-    if (!r.ok) {
-      console.error("CG error:", r.status);
+    // Map crypto symbol → CG ID
+    const cgId = map[base];
+    if (!cgId) {
+      console.error("Unknown crypto:", base);
       return Response.json({ price: null });
     }
+
+    const urlCG = `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=${quote.toLowerCase()}`;
+
+    const r = await fetch(urlCG);
+    if (!r.ok) return Response.json({ price: null });
 
     const j = await r.json();
-    const price = j?.[base]?.[quote];
+    const price = j?.[cgId]?.[quote.toLowerCase()];
+    return Response.json({ price: price ?? null });
 
-    if (typeof price !== "number") {
-      console.error("CG no price for:", base, j);
-      return Response.json({ price: null });
-    }
-
-    return Response.json({ price });
   } catch (err) {
-    console.error("Price API error:", err);
+    console.error("price API error:", err);
     return Response.json({ price: null });
   }
 }
