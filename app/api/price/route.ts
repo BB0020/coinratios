@@ -1,46 +1,57 @@
-// /app/api/price/route.ts
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
+export const revalidate = 15; // small cache for live price
+
+// Detect fiat symbols
+const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
+
+// CoinGecko base URL
+const CG = "https://api.coingecko.com/api/v3/simple/price";
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const ids = searchParams.get("ids"); // comma-separated crypto IDs
-  const fiats = searchParams.get("fiats"); // comma-separated fiat symbols
-
-  const out: any = {};
-
   try {
-    // -----------------------------
-    // 1. Crypto batch pricing
-    // -----------------------------
-    if (ids) {
-      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`;
-      const r = await fetch(url, { next: { revalidate: 60 } });
-      const d = await r.json();
-      out.crypto = d;
+    const url = new URL(req.url);
+    let base = url.searchParams.get("base") || "";
+    let quote = url.searchParams.get("quote") || "usd";
+
+    base = base.toLowerCase();
+    quote = quote.toLowerCase();
+
+    // 1) USD direct
+    if (base === "usd" && quote === "usd") {
+      return Response.json({ price: 1 });
     }
 
-    // -----------------------------
-    // 2. Fiat batch pricing
-    // -----------------------------
-    if (fiats) {
-      const fiatList = fiats.split(",");
-      const r = await fetch("https://api.frankfurter.app/latest?from=USD");
-      const d = await r.json();
-
-      out.fiat = {};
-
-      fiatList.forEach((sym) => {
-        if (sym === "USD") {
-          out.fiat["USD"] = 1;
-        } else {
-          const rate = d.rates?.[sym] ?? 0;
-          out.fiat[sym] = 1 / rate;
-        }
-      });
+    // 2) FIAT → USD only supports reverse via Frankfurter
+    if (isFiat(base.toUpperCase())) {
+      const r = await fetch(
+        `https://api.frankfurter.app/latest?from=USD&to=${base.toUpperCase()}`
+      );
+      const j = await r.json();
+      const rate = j.rates?.[base.toUpperCase()];
+      if (!rate) return Response.json({ price: null });
+      return Response.json({ price: 1 / rate }); // USD per fiat
     }
 
-    return Response.json(out);
-  } catch (e) {
-    return Response.json({ crypto: {}, fiat: {} });
+    // 3) Crypto price from CoinGecko
+    const cgUrl = `${CG}?ids=${base}&vs_currencies=${quote}`;
+    const r = await fetch(cgUrl);
+
+    if (!r.ok) {
+      console.error("CG error:", r.status);
+      return Response.json({ price: null });
+    }
+
+    const j = await r.json();
+    const price = j?.[base]?.[quote];
+
+    if (typeof price !== "number") {
+      console.error("CG no price for:", base, j);
+      return Response.json({ price: null });
+    }
+
+    return Response.json({ price });
+  } catch (err) {
+    console.error("Price API error:", err);
+    return Response.json({ price: null });
   }
 }
