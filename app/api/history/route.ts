@@ -1,6 +1,6 @@
 // /app/api/history/route.ts
 export const dynamic = "force-dynamic";
-export const revalidate = 60;
+export const revalidate = 300;
 
 // -----------------------------
 // TYPES
@@ -10,120 +10,143 @@ interface Point {
   value: number;
 }
 
+interface FrankfurterResponse {
+  rates: Record<string, Record<string, number>>;
+}
+
 interface CGResponse {
   prices: [number, number][];
 }
 
 // -----------------------------
+// RETRY HELPER (Option A)
+// -----------------------------
+async function fetchWithBackoff(url: string, maxRetries = 3): Promise<Response> {
+  let attempt = 0;
+
+  while (true) {
+    const res = await fetch(url);
+
+    if (res.ok) return res;
+    if (attempt >= maxRetries) return res;
+
+    const delay = 300 * Math.pow(2, attempt); // 0 → 300 → 1200 ms
+    await new Promise((resolve) => setTimeout(resolve, delay));
+
+    attempt++;
+  }
+}
+
+// -----------------------------
 // HELPERS
 // -----------------------------
-
-// Detect fiat (e.g. USD, EUR)
 const isFiat = (id: string): boolean => /^[A-Z]{3,5}$/.test(id);
 
-// Floor timestamp to hour
-const floorToHour = (ts: number) => ts - (ts % 3600);
+const parseDay = (day: string): number =>
+  Math.floor(new Date(`${day}T00:00:00Z`).getTime() / 1000);
 
-// Floor timestamp to midnight UTC
-const floorToDay = (ts: number) =>
-  ts - (ts % 86400);
+function buildDateRange(days: number) {
+  const now = new Date();
 
-// Downsample hourly → 3H grid (strict)
-const is3HourAligned = (ts: number) => (ts % 10800) === 0;
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
 
-// -----------------------------
-// FETCH CRYPTO (CoinGecko)
-// -----------------------------
-async function fetchCrypto(id: string, days: number): Promise<Point[]> {
-  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
-  const r = await fetch(url);
-  if (!r.ok) return [];
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)
+  );
 
-  const d = (await r.json()) as CGResponse;
-  if (!d.prices) return [];
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
+}
 
-  let pts = d.prices.map(([ms, price]) => ({
-    time: Math.floor(ms / 1000),
-    value: price,
-  }));
+// Smooth fiat missing days
+function smoothFiat(points: Point[], days: number): Point[] {
+  if (!points.length) return [];
 
-  // Normalize timestamps based on days
-  if (days === 1) {
-    // Keep raw 5–10 min data (no rounding)
-    return pts;
-  }
+  const now = new Date();
+  const startTs =
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days) /
+    1000;
 
-  if (days === 7 || days === 30 || days === 90) {
-    pts = pts.map(p => ({
-      time: floorToHour(p.time),
-      value: p.value
-    }));
-  }
+  const map = new Map<number, number>();
+  points.forEach((p) => map.set(p.time, p.value));
 
-  if (days === 365) {
-    pts = pts.map(p => ({
-      time: floorToDay(p.time),
-      value: p.value
-    }));
-  }
-
-  // Deduplicate after rounding
-  const seen = new Set<number>();
   const out: Point[] = [];
-  for (const p of pts) {
-    if (!seen.has(p.time)) {
-      seen.add(p.time);
-      out.push(p);
-    }
+  let last = points[0].value;
+
+  for (let i = 0; i <= days; i++) {
+    const t = startTs + i * 86400;
+    if (map.has(t)) last = map.get(t)!;
+    out.push({ time: t, value: last });
   }
 
   return out;
 }
 
 // -----------------------------
-// FETCH USD (used for quote)
+// CRYPTO FETCH (CoinGecko)
 // -----------------------------
-async function fetchUSD(days: number): Promise<Point[]> {
-  // USD=1 always, timestamps must match the merge structure
-  // Here we simply generate hourly or daily timestamps based on the request.
+async function fetchCrypto(id: string, days: number): Promise<Point[]> {
+  const url = `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${days}`;
+  const r = await fetchWithBackoff(url);
+  if (!r.ok) return [];
 
-  const now = Math.floor(Date.now() / 1000);
-  const out: Point[] = [];
+  const d = (await r.json()) as CGResponse;
+  if (!d.prices) return [];
 
-  if (days === 1) {
-    // Simulate 5-min grid for USD
-    for (let i = 0; i <= 288; i++) {
-      const t = now - i * 300;
-      out.push({ time: t, value: 1 });
-    }
-    return out.reverse();
-  }
-
-  if (days === 7 || days === 30 || days === 90) {
-    // Hourly timestamps
-    for (let i = 0; i <= days * 24; i++) {
-      const t = floorToHour(now - i * 3600);
-      out.push({ time: t, value: 1 });
-    }
-    return out.reverse();
-  }
-
-  if (days === 365) {
-    // Daily timestamps
-    for (let i = 0; i <= 365; i++) {
-      const t = floorToDay(now - i * 86400);
-      out.push({ time: t, value: 1 });
-    }
-    return out.reverse();
-  }
-
-  return [];
+  return d.prices.map(([ts, price]) => ({
+    time: Math.floor(ts / 1000),
+    value: price,
+  }));
 }
 
 // -----------------------------
-// NEAREST-PAST MATCHER
+// FIAT FETCH (Frankfurter)
 // -----------------------------
-function nearestPastValue(times: number[], values: number[]) {
+async function fetchFiat(symbol: string, days: number): Promise<Point[]> {
+  if (symbol === "USD") {
+    const now = new Date();
+    const arr: Point[] = [];
+
+    for (let i = 0; i <= days; i++) {
+      const ts =
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() - i
+        ) / 1000;
+
+      arr.push({ time: ts, value: 1 });
+    }
+    return arr.reverse();
+  }
+
+  const { start, end } = buildDateRange(days);
+  const url = `https://api.frankfurter.app/${start}..${end}?from=USD&to=${symbol}`;
+
+  const r = await fetchWithBackoff(url);
+  if (!r.ok) return [];
+
+  const d = (await r.json()) as FrankfurterResponse;
+  if (!d.rates) return [];
+
+  const raw: Point[] = Object.keys(d.rates)
+    .map((day) => ({
+      time: parseDay(day),
+      value: 1 / d.rates[day][symbol],
+    }))
+    .sort((a, b) => a.time - b.time);
+
+  return smoothFiat(raw, days);
+}
+
+// -----------------------------
+// NEAREST MATCH
+// -----------------------------
+function nearestTimeFactory(times: number[], values: number[]) {
   return function (t: number): number | null {
     let lo = 0;
     let hi = times.length - 1;
@@ -153,22 +176,26 @@ export async function GET(req: Request) {
     const quote = url.searchParams.get("quote")!;
     const days = Number(url.searchParams.get("days") ?? 30);
 
+    // Fetch both series
     const [rawA, rawB] = await Promise.all([
-      isFiat(base) ? fetchUSD(days) : fetchCrypto(base, days),
-      isFiat(quote) ? fetchUSD(days) : fetchCrypto(quote, days),
+      isFiat(base) ? fetchFiat(base, days) : fetchCrypto(base, days),
+      isFiat(quote) ? fetchFiat(quote, days) : fetchCrypto(quote, days),
     ]);
 
     if (!rawA.length || !rawB.length) {
       return Response.json({ history: [] });
     }
 
-    // Prepare B for nearest lookup
-    const timesB = rawB.map(p => p.time);
-    const valuesB = rawB.map(p => p.value);
-    const nearest = nearestPastValue(timesB, valuesB);
+    // Build time map for quote
+    const mapB: Map<number, number> = new Map(
+      rawB.map((p) => [p.time, p.value])
+    );
+    const timesB = Array.from(mapB.keys()).sort((a, b) => a - b);
+    const valuesB = timesB.map((t) => mapB.get(t)!);
+    const nearest = nearestTimeFactory(timesB, valuesB);
 
-    // Merge into ratio series
-    let merged: Point[] = [];
+    // Merge into ratio
+    const merged: Point[] = [];
     for (const p of rawA) {
       const div = nearest(p.time);
       if (!div) continue;
@@ -179,14 +206,9 @@ export async function GET(req: Request) {
       });
     }
 
-    // 3H grid for 90D
-    if (days === 90) {
-      merged = merged.filter(p => is3HourAligned(p.time));
-    }
-
     return Response.json({ history: merged });
-  } catch (e) {
-    console.error("History API error:", e);
+  } catch (err) {
+    console.error("History API Error:", err);
     return Response.json({ history: [] });
   }
 }
