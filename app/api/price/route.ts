@@ -1,9 +1,13 @@
-import { loadSymbolMap } from "../_coinmap";
+// /app/api/price/route.ts
+import { getSymbolToIdMap } from "../_coinmap";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 15;
 
-const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
+const FIAT = new Set([
+  "USD","EUR","GBP","JPY","CAD","AUD","CHF","CNY","SEK","NZD",
+  "INR","BRL","RUB","HKD","SGD","MXN","ZAR"
+]);
 
 export async function GET(req: Request) {
   try {
@@ -11,15 +15,15 @@ export async function GET(req: Request) {
     let base = (url.searchParams.get("base") || "").toUpperCase();
     let quote = (url.searchParams.get("quote") || "USD").toUpperCase();
 
-    const map = await loadSymbolMap();
+    const map = await getSymbolToIdMap();
 
-    // USD special case
+    // USD → USD
     if (base === "USD" && quote === "USD") {
       return Response.json({ price: 1 });
     }
 
-    // Fiat → USD (Frankfurter)
-    if (isFiat(base)) {
+    // Fiat case
+    if (FIAT.has(base)) {
       const r = await fetch(
         `https://api.frankfurter.app/latest?from=USD&to=${base}`
       );
@@ -29,24 +33,27 @@ export async function GET(req: Request) {
       return Response.json({ price: 1 / rate });
     }
 
-    // Map crypto symbol → CG ID
+    // Crypto case
     const cgId = map[base];
     if (!cgId) {
-      console.error("Unknown crypto:", base);
+      console.error("Unknown base symbol:", base);
       return Response.json({ price: null });
     }
 
-    const urlCG = `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=${quote.toLowerCase()}`;
+    const urlCG =
+      `https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=${quote.toLowerCase()}`;
+    const r2 = await fetch(urlCG);
+    if (!r2.ok) {
+      console.error("CG price fetch failed:", r2.status);
+      return Response.json({ price: null });
+    }
 
-    const r = await fetch(urlCG);
-    if (!r.ok) return Response.json({ price: null });
+    const j2 = await r2.json();
+    const price = j2[cgId]?.[quote.toLowerCase()];
+    return Response.json({ price: typeof price === "number" ? price : null });
 
-    const j = await r.json();
-    const price = j?.[cgId]?.[quote.toLowerCase()];
-    return Response.json({ price: price ?? null });
-
-  } catch (err) {
-    console.error("price API error:", err);
+  } catch (e) {
+    console.error("price route error:", e);
     return Response.json({ price: null });
   }
 }

@@ -1,29 +1,19 @@
 // app/api/_coinmap.ts
-// Loads /api/coins once & builds symbol → CG ID mapping
+let cache: Record<string, string> | null = null;
+let last = 0;
+const TTL = 3600_000;
 
-let cachedMap: Record<string, string> | null = null;
-let lastFetch = 0;
-const CACHE_MS = 3600_000; // 1 hour
-
-export async function loadSymbolMap(): Promise<Record<string, string>> {
+export async function getSymbolToIdMap(): Promise<Record<string, string>> {
   const now = Date.now();
-  if (cachedMap && now - lastFetch < CACHE_MS) return cachedMap;
+  if (cache && now - last < TTL) return cache;
 
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/coins`);
-    const data = await res.json();
-
-    const map: Record<string, string> = {};
-    for (const c of data.coins) {
-      if (!c.symbol || !c.id) continue;
-      map[c.symbol.toUpperCase()] = c.id;
-    }
-
-    cachedMap = map;
-    lastFetch = now;
-    return map;
-  } catch (err) {
-    console.error("CoinMap load failed:", err);
-    return cachedMap ?? {};
+  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/coins`);
+  const { coins } = await res.json();
+  const m: Record<string,string> = {};
+  for (const c of coins) {
+    m[c.symbol.toUpperCase()] = c.id;
   }
+  cache = m;
+  last = now;
+  return m;
 }
