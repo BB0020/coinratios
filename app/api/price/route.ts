@@ -1,10 +1,14 @@
 export const dynamic = "force-dynamic";
-export const revalidate = 15; // small cache for live price
+export const revalidate = 15;
 
-// Detect fiat symbols
-const isFiat = (s: string) => /^[A-Z]{3,5}$/.test(s);
+// REAL fiat whitelist (CoinGecko-supported)
+const FIAT = new Set([
+  "USD","EUR","GBP","JPY","CAD","AUD","CHF","CNY","SEK","NZD",
+  "INR","BRL","RUB","HKD","SGD","MXN","ZAR"
+]);
 
-// CoinGecko base URL
+const isFiat = (s: string) => FIAT.has(s.toUpperCase());
+
 const CG = "https://api.coingecko.com/api/v3/simple/price";
 
 export async function GET(req: Request) {
@@ -16,23 +20,23 @@ export async function GET(req: Request) {
     base = base.toLowerCase();
     quote = quote.toLowerCase();
 
-    // 1) USD direct
+    // 0) USD direct
     if (base === "usd" && quote === "usd") {
       return Response.json({ price: 1 });
     }
 
-    // 2) FIAT → USD only supports reverse via Frankfurter
-    if (isFiat(base.toUpperCase())) {
+    // 1) FIAT branch (ONLY real fiats)
+    if (isFiat(base)) {
       const r = await fetch(
         `https://api.frankfurter.app/latest?from=USD&to=${base.toUpperCase()}`
       );
       const j = await r.json();
       const rate = j.rates?.[base.toUpperCase()];
       if (!rate) return Response.json({ price: null });
-      return Response.json({ price: 1 / rate }); // USD per fiat
+      return Response.json({ price: 1 / rate });
     }
 
-    // 3) Crypto price from CoinGecko
+    // 2) Crypto branch
     const cgUrl = `${CG}?ids=${base}&vs_currencies=${quote}`;
     const r = await fetch(cgUrl);
 
