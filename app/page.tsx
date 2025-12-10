@@ -4,8 +4,6 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import {
   createChart,
   type UTCTimestamp,
-  type AreaData,
-  ColorType,
 } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
@@ -101,7 +99,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // FILTERED DROPDOWN
+  // FILTERED DROPDOWN SEARCH
   // ------------------------------------------------------------
   const filteredCoins = useCallback(
     (q: string) => {
@@ -116,7 +114,7 @@ export default function Page() {
   );
 
   // ------------------------------------------------------------
-  // REALTIME PRICE FETCH
+  // PRICE FETCH
   // ------------------------------------------------------------
   const getRealtime = useCallback(async (coin: Coin) => {
     const key = coin.id;
@@ -187,26 +185,31 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ FIXED CHART REBUILD BLOCK ⭐
+  // ⭐ FINAL FIX: UNIFIED CHART LIFECYCLE ⭐
   // ------------------------------------------------------------
   useEffect(() => {
-    async function buildChart() {
-      if (!chartContainerRef.current) return;
-      if (!fromCoin || !toCoin) return;
+    let cancelled = false;
 
-      // DESTROY old chart
+    async function build() {
+      if (!chartContainerRef.current || !fromCoin || !toCoin) return;
+
+      const container = chartContainerRef.current;
+
+      // 1️⃣ Load data BEFORE building chart
+      const days = rangeToDays(range);
+      const hist = await getHistory(fromCoin, toCoin, days);
+      if (cancelled) return;
+
+      // 2️⃣ Remove any existing chart
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
         seriesRef.current = null;
       }
 
-      const container = chartContainerRef.current;
-      const days = rangeToDays(range);
-      const hist = await getHistory(fromCoin, toCoin, days);
-
       const isDark = document.documentElement.classList.contains("dark");
 
+      // 3️⃣ Create chart
       const chart = createChart(container, {
         width: container.clientWidth,
         height: 390,
@@ -229,6 +232,7 @@ export default function Page() {
       chartRef.current = chart;
       seriesRef.current = series;
 
+      // 4️⃣ Apply data
       if (hist.length) {
         series.setData(
           hist.map((p: HistoryPoint) => ({
@@ -242,49 +246,23 @@ export default function Page() {
         series.setData([]);
       }
 
+      // 5️⃣ Resize listener
       const handleResize = () => {
         chart.resize(container.clientWidth, 390);
       };
-
       window.addEventListener("resize", handleResize);
+
       return () => window.removeEventListener("resize", handleResize);
     }
 
-    buildChart();
+    build();
+    return () => {
+      cancelled = true;
+    };
   }, [fromCoin, toCoin, range, getHistory]);
 
   // ------------------------------------------------------------
-  // SAFE UPDATE (runs AFTER rebuild)
-  // ------------------------------------------------------------
-  useEffect(() => {
-    async function update() {
-      if (!chartRef.current || !seriesRef.current) return;
-      if (!fromCoin || !toCoin) return;
-
-      const days = rangeToDays(range);
-      const hist = await getHistory(fromCoin, toCoin, days);
-
-      if (!hist.length) {
-        seriesRef.current.setData([]);
-        return;
-      }
-
-      seriesRef.current.setData(
-        hist.map((p: HistoryPoint) => ({
-        time: p.time as UTCTimestamp,
-        value: p.value,
-      }))
-
-      );
-
-      chartRef.current.timeScale().fitContent();
-    }
-
-    update();
-  }, [fromCoin, toCoin, range, getHistory]);
-
-  // ------------------------------------------------------------
-  // THEME CHANGE
+  // THEME CHANGE SUPPORT
   // ------------------------------------------------------------
   useEffect(() => {
     const handler = () => {
@@ -314,7 +292,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // UI HELPERS
+  // DROPDOWN RENDERING
   // ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -336,7 +314,8 @@ export default function Page() {
           className={cls}
           onClick={() => {
             if (disabled) return;
-            type === "from" ? setFromCoin(coin) : setToCoin(coin);
+            if (type === "from") setFromCoin(coin);
+            else setToCoin(coin);
             setOpenDropdown(null);
             setFromSearch("");
             setToSearch("");
@@ -366,7 +345,6 @@ export default function Page() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-
           {filteredCoins(search).map((c) => renderRow(c, type))}
         </div>
       );
@@ -379,6 +357,7 @@ export default function Page() {
   // ------------------------------------------------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
+
     return (
       <div style={{ textAlign: "center", marginTop: "35px" }}>
         {ranges.map((r) => (
@@ -418,25 +397,20 @@ export default function Page() {
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
-          {toCoin.symbol}
+          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
-          1 {fromCoin.symbol} ={" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
-          {toCoin.symbol}
+          1 {fromCoin.symbol} = {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
           <br />
-          1 {toCoin.symbol} ={" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
-          {fromCoin.symbol}
+          1 {toCoin.symbol} = {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })} {fromCoin.symbol}
         </div>
       </div>
     );
   };
 
   // ------------------------------------------------------------
-  // MAIN RETURN
+  // MAIN UI
   // ------------------------------------------------------------
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
@@ -444,7 +418,7 @@ export default function Page() {
         <ThemeToggle />
       </div>
 
-      {/* TOP ROW */}
+      {/* SELECTORS */}
       <div
         style={{
           display: "flex",
@@ -462,13 +436,10 @@ export default function Page() {
             value={amount}
             onChange={(e) => {
               const v = e.target.value;
-              if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) {
-                setAmount(v);
-              }
+              if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) setAmount(v);
             }}
             className="selector-box"
             style={{ width: "260px" }}
-            placeholder="0.00"
           />
           {(amount === "" || Number(amount) <= 0) && (
             <div style={{ color: "red", marginTop: "6px", fontSize: "14px" }}>
@@ -539,7 +510,7 @@ export default function Page() {
         </div>
       </div>
 
-      {/* RESULT */}
+      {/* RESULTS */}
       {renderResult()}
 
       {/* RANGE BUTTONS */}
