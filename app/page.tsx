@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { createChart, type UTCTimestamp, type AreaData } from "lightweight-charts";
+import {
+  createChart,
+  type UTCTimestamp,
+  type AreaData,
+  ColorType,
+} from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
 // ------------------------------------------------------------
@@ -16,7 +21,7 @@ interface Coin {
 }
 
 interface HistoryPoint {
-  time: number; 
+  time: number;
   value: number;
 }
 
@@ -61,24 +66,23 @@ export default function Page() {
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
 
+  const [amount, setAmount] = useState("1");
+  const [range, setRange] = useState("24H");
+  const [result, setResult] = useState<number | null>(null);
+
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
-  const [amount, setAmount] = useState("1");
-  const [result, setResult] = useState<number | null>(null);
-  const [range, setRange] = useState("24H");
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
+
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
 
-  const fromPanelRef = useRef<HTMLDivElement | null>(null);
-  const toPanelRef = useRef<HTMLDivElement | null>(null);
-
   // ------------------------------------------------------------
-  // LOAD COINS LIST
+  // LOAD COINS
   // ------------------------------------------------------------
   useEffect(() => {
     async function loadCoins() {
@@ -87,7 +91,6 @@ export default function Page() {
 
       const cryptoList = d.coins ?? [];
       const final = [USD, ...cryptoList, ...FIAT_LIST];
-
       setAllCoins(final);
 
       const btc = final.find((c) => c.id === "bitcoin");
@@ -98,81 +101,56 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // CLICK OUTSIDE TO CLOSE DROPDOWNS
-  // ------------------------------------------------------------
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (openDropdown === "from" &&
-        fromPanelRef.current &&
-        !fromPanelRef.current.contains(e.target as Node)) {
-        setOpenDropdown(null);
-        setFromSearch("");
-      }
-      if (openDropdown === "to" &&
-        toPanelRef.current &&
-        !toPanelRef.current.contains(e.target as Node)) {
-        setOpenDropdown(null);
-        setToSearch("");
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [openDropdown]);
-
-  // ------------------------------------------------------------
-  // FILTERED COINS
+  // FILTERED DROPDOWN
   // ------------------------------------------------------------
   const filteredCoins = useCallback(
     (q: string) => {
-      if (!q) return allCoins;
       const s = q.toLowerCase();
-      return allCoins.filter((c) =>
-        c.symbol.toLowerCase().includes(s) ||
-        c.name.toLowerCase().includes(s)
+      return allCoins.filter(
+        (c) =>
+          c.symbol.toLowerCase().includes(s) ||
+          c.name.toLowerCase().includes(s)
       );
     },
     [allCoins]
   );
 
   // ------------------------------------------------------------
-  // FIXED REALTIME PRICE FETCH (NEW WORKING FORMAT)
+  // REALTIME PRICE FETCH
   // ------------------------------------------------------------
   const getRealtime = useCallback(async (coin: Coin) => {
     const key = coin.id;
-
     if (realtimeCache.current[key]) return realtimeCache.current[key];
 
-    const url = `/api/price?base=${coin.id}&quote=usd`;
-    const r = await fetch(url);
+    const r = await fetch(`/api/price?base=${coin.id}&quote=usd`);
     const j = await r.json();
-
     const price = typeof j.price === "number" ? j.price : 0;
+
     realtimeCache.current[key] = price;
     return price;
   }, []);
 
   // ------------------------------------------------------------
-  // CONVERSION RESULT
+  // COMPUTE RESULT
   // ------------------------------------------------------------
-  const computeResult = useCallback(async () => {
-    if (!fromCoin || !toCoin) return;
-
-    const amt = Number(amount);
-    if (!amt || amt <= 0) return setResult(null);
-
-    const [a, b] = await Promise.all([
-      getRealtime(fromCoin),
-      getRealtime(toCoin),
-    ]);
-
-    const ratio = a / b;
-    setResult(ratio * amt);
-  }, [fromCoin, toCoin, amount, getRealtime]);
-
   useEffect(() => {
-    const t = setTimeout(computeResult, 150);
+    async function compute() {
+      if (!fromCoin || !toCoin) return;
+
+      const amt = Number(amount);
+      if (amt <= 0) return setResult(null);
+
+      const [a, b] = await Promise.all([
+        getRealtime(fromCoin),
+        getRealtime(toCoin),
+      ]);
+
+      setResult((a / b) * amt);
+    }
+
+    const t = setTimeout(compute, 150);
     return () => clearTimeout(t);
-  }, [fromCoin, toCoin, amount, computeResult]);
+  }, [amount, fromCoin, toCoin, getRealtime]);
 
   // ------------------------------------------------------------
   // RANGE → DAYS
@@ -191,44 +169,41 @@ export default function Page() {
       : 365;
 
   // ------------------------------------------------------------
-  // HISTORY FETCH (cached)
+  // HISTORY FETCH + CACHE
   // ------------------------------------------------------------
-  const getHistory = useCallback(
-    async (base: Coin, quote: Coin, days: number) => {
-      const key = `${base.id}-${quote.id}-${days}`;
-      if (historyCache.current[key]) return historyCache.current[key];
+  const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
+    const key = `${base.id}-${quote.id}-${days}`;
+    if (historyCache.current[key]) return historyCache.current[key];
 
-      const r = await fetch(
-        `/api/history?base=${base.id}&quote=${quote.id}&days=${days}`
-      );
-      const d = await r.json();
+    const r = await fetch(`/api/history?base=${base.id}&quote=${quote.id}&days=${days}`);
+    const d = await r.json();
 
-      const arr = (d.history ?? []) as HistoryPoint[];
+    const cleaned = (d.history ?? [])
+      .filter((p: any) => Number.isFinite(p.value))
+      .sort((a: any, b: any) => a.time - b.time);
 
-      const cleaned = arr
-        .filter((p) => Number.isFinite(p.value))
-        .sort((a, b) => a.time - b.time);
-
-      historyCache.current[key] = cleaned;
-      return cleaned;
-    },
-    []
-  );
+    historyCache.current[key] = cleaned;
+    return cleaned;
+  }, []);
 
   // ------------------------------------------------------------
-  // INIT CHART
+  // ⭐ FIXED CHART REBUILD BLOCK ⭐
   // ------------------------------------------------------------
   useEffect(() => {
-    async function init() {
-      if (chartRef.current) return;
+    async function buildChart() {
       if (!chartContainerRef.current) return;
       if (!fromCoin || !toCoin) return;
 
+      // DESTROY old chart
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+      }
+
+      const container = chartContainerRef.current;
       const days = rangeToDays(range);
       const hist = await getHistory(fromCoin, toCoin, days);
-      const container = chartContainerRef.current;
-
-      await new Promise((res) => setTimeout(res, 20));
 
       const isDark = document.documentElement.classList.contains("dark");
 
@@ -255,13 +230,16 @@ export default function Page() {
       seriesRef.current = series;
 
       if (hist.length) {
-        const formatted: AreaData[] = hist.map((p) => ({
+        series.setData(
+          hist.map((p: HistoryPoint) => ({
           time: p.time as UTCTimestamp,
           value: p.value,
-        }));
+        }))
 
-        series.setData(formatted);
+        );
         chart.timeScale().fitContent();
+      } else {
+        series.setData([]);
       }
 
       const handleResize = () => {
@@ -272,35 +250,41 @@ export default function Page() {
       return () => window.removeEventListener("resize", handleResize);
     }
 
-    init();
-  }, [fromCoin, toCoin]);
+    buildChart();
+  }, [fromCoin, toCoin, range, getHistory]);
 
   // ------------------------------------------------------------
-  // UPDATE CHART ON CHANGES
+  // SAFE UPDATE (runs AFTER rebuild)
   // ------------------------------------------------------------
   useEffect(() => {
-    if (!chartRef.current || !seriesRef.current) return;
-
     async function update() {
+      if (!chartRef.current || !seriesRef.current) return;
       if (!fromCoin || !toCoin) return;
 
       const days = rangeToDays(range);
       const hist = await getHistory(fromCoin, toCoin, days);
 
-      const formatted: AreaData[] = hist.map((p) => ({
+      if (!hist.length) {
+        seriesRef.current.setData([]);
+        return;
+      }
+
+      seriesRef.current.setData(
+        hist.map((p: HistoryPoint) => ({
         time: p.time as UTCTimestamp,
         value: p.value,
-      }));
+      }))
 
-      seriesRef.current.setData(formatted);
+      );
+
       chartRef.current.timeScale().fitContent();
     }
 
     update();
-  }, [range, fromCoin, toCoin, getHistory]);
+  }, [fromCoin, toCoin, range, getHistory]);
 
   // ------------------------------------------------------------
-  // THEME CHANGE HANDLER
+  // THEME CHANGE
   // ------------------------------------------------------------
   useEffect(() => {
     const handler = () => {
@@ -330,7 +314,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // UI COMPONENT HELPERS
+  // UI HELPERS
   // ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -373,16 +357,16 @@ export default function Page() {
     (type: "from" | "to") => {
       const search = type === "from" ? fromSearch : toSearch;
       const setSearch = type === "from" ? setFromSearch : setToSearch;
-      const ref = type === "from" ? fromPanelRef : toPanelRef;
 
       return (
-        <div className="dropdown-panel" ref={ref}>
+        <div className="dropdown-panel">
           <input
             className="dropdown-search"
             placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+
           {filteredCoins(search).map((c) => renderRow(c, type))}
         </div>
       );
@@ -390,6 +374,9 @@ export default function Page() {
     [filteredCoins, fromSearch, toSearch, renderRow]
   );
 
+  // ------------------------------------------------------------
+  // RANGE BUTTONS
+  // ------------------------------------------------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
     return (
@@ -416,6 +403,9 @@ export default function Page() {
     );
   };
 
+  // ------------------------------------------------------------
+  // RESULT PANEL
+  // ------------------------------------------------------------
   const renderResult = () => {
     if (!result || !fromCoin || !toCoin) return null;
 
@@ -470,8 +460,6 @@ export default function Page() {
           <h3>AMOUNT</h3>
           <input
             value={amount}
-            placeholder="0.00"
-            inputMode="decimal"
             onChange={(e) => {
               const v = e.target.value;
               if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) {
@@ -480,9 +468,10 @@ export default function Page() {
             }}
             className="selector-box"
             style={{ width: "260px" }}
+            placeholder="0.00"
           />
           {(amount === "" || Number(amount) <= 0) && (
-            <div style={{ color: "red", marginTop: "6px", fontSize: "14px", fontWeight: 500 }}>
+            <div style={{ color: "red", marginTop: "6px", fontSize: "14px" }}>
               Enter a Number Greater than 0
             </div>
           )}
@@ -513,13 +502,15 @@ export default function Page() {
 
         {/* SWAP BUTTON */}
         <div
-          onClick={() =>
-            fromCoin &&
-            toCoin &&
-            (setFromCoin(toCoin), setToCoin(fromCoin))
-          }
           className="swap-circle"
           style={{ marginTop: "38px" }}
+          onClick={() => {
+            if (fromCoin && toCoin) {
+              const f = fromCoin;
+              setFromCoin(toCoin);
+              setToCoin(f);
+            }
+          }}
         >
           <div className="swap-icon" />
         </div>
