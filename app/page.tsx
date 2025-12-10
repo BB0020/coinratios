@@ -76,10 +76,11 @@ export default function Page() {
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
-  // global debugging
+  // debug globals
   useEffect(() => {
     (window as any).chartRef = chartRef;
     (window as any).seriesRef = seriesRef;
+    (window as any).latestBuildId = null;
   }, []);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
@@ -168,7 +169,7 @@ export default function Page() {
                   365;
 
   // ------------------------------------------------------------
-  // HISTORY FETCH (CACHED)
+  // HISTORY (CACHED)
   // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
@@ -186,7 +187,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ STABLE CHART LIFECYCLE (A2) ⭐
+  // ⭐ FINAL STABLE CHART LIFECYCLE (A2 FIX) ⭐
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
 
@@ -196,17 +197,18 @@ export default function Page() {
     const container = chartContainerRef.current;
     if (!container) return;
 
-    const buildId = Symbol();
-    latestBuildId.current = buildId;
-
     async function build() {
+      const buildId = Symbol();
+      latestBuildId.current = buildId;
+      (window as any).latestBuildId = buildId;
+
       const days = rangeToDays(range);
       const hist = await getHistory(fromCoin as Coin, toCoin as Coin, days);
 
-      // Ignore stale builds
+      // ❗ discard stale builds
       if (latestBuildId.current !== buildId) return;
 
-      // Remove old chart
+      // remove old chart
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
@@ -215,20 +217,18 @@ export default function Page() {
 
       const isDark = document.documentElement.classList.contains("dark");
 
-      // Create chart
       const chart = createChart(container as HTMLElement, {
-      width: (container as HTMLDivElement).clientWidth,
-      height: 390,
-      layout: {
-        background: { color: isDark ? "#111" : "#fff" },
-        textColor: isDark ? "#eee" : "#111",
-      },
-      grid: {
-        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-      },
-    });
-
+        width: (container as HTMLDivElement).clientWidth,
+        height: 390,
+        layout: {
+          background: { color: isDark ? "#111" : "#fff" },
+          textColor: isDark ? "#eee" : "#111",
+        },
+        grid: {
+          vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+          horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+        },
+      });
 
       const series = chart.addAreaSeries({
         lineColor: isDark ? "#4ea1f7" : "#3b82f6",
@@ -239,7 +239,6 @@ export default function Page() {
       chartRef.current = chart;
       seriesRef.current = series;
 
-      // Apply data
       if (hist.length > 0) {
         series.setData(
           hist.map((p: HistoryPoint) => ({
@@ -252,13 +251,10 @@ export default function Page() {
         series.setData([]);
       }
 
-      // Handle resize
       const handleResize = () => {
         if (!chartRef.current) return;
-        if (container) {
-        chartRef.current.resize(container.clientWidth, 390);
-}
-
+        if (!container) return;
+        chartRef.current.resize((container as HTMLDivElement).clientWidth, 390);
       };
 
       window.addEventListener("resize", handleResize);
@@ -268,7 +264,7 @@ export default function Page() {
   }, [fromCoin, toCoin, range, getHistory]);
 
   // ------------------------------------------------------------
-  // THEME CHANGE SUPPORT
+  // THEME UPDATE HANDLER
   // ------------------------------------------------------------
   useEffect(() => {
     const handler = () => {
@@ -298,7 +294,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // DROPDOWN RENDERING
+  // DROPDOWN HELPERS
   // ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -388,7 +384,7 @@ export default function Page() {
   };
 
   // ------------------------------------------------------------
-  // RESULT PANEL
+  // RESULT
   // ------------------------------------------------------------
   const renderResult = () => {
     if (!result || !fromCoin || !toCoin) return null;
@@ -484,7 +480,7 @@ export default function Page() {
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* SWAP BUTTON */}
+        {/* SWAP */}
         <div
           className="swap-circle"
           style={{ marginTop: "38px" }}
@@ -526,7 +522,7 @@ export default function Page() {
       {/* RESULT */}
       {renderResult()}
 
-      {/* RANGES */}
+      {/* RANGE BUTTONS */}
       <RangeButtons />
 
       {/* CHART */}
