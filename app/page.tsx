@@ -16,7 +16,7 @@ interface Coin {
 }
 
 interface HistoryPoint {
-  time: number;  // seconds timestamp, cast to UTCTimestamp
+  time: number; 
   value: number;
 }
 
@@ -24,11 +24,11 @@ interface HistoryPoint {
 // CONSTANTS
 // ------------------------------------------------------------
 const USD: Coin = {
-  id: "USD",
+  id: "usd",
   symbol: "USD",
   name: "US Dollar",
   image: "https://flagcdn.com/us.svg",
-  type: "fiat"
+  type: "fiat",
 };
 
 const FIAT_LIST: Coin[] = [
@@ -57,9 +57,6 @@ const FIAT_LIST: Coin[] = [
 // PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
-  // -----------------------------
-  // STATE
-  // -----------------------------
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
@@ -67,19 +64,13 @@ export default function Page() {
   const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
-
   const [amount, setAmount] = useState("1");
   const [result, setResult] = useState<number | null>(null);
-
   const [range, setRange] = useState("24H");
 
-  // -----------------------------
-  // REFS
-  // -----------------------------
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
-
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
 
@@ -144,31 +135,24 @@ export default function Page() {
   );
 
   // ------------------------------------------------------------
-  // REALTIME PRICE FETCH
+  // FIXED REALTIME PRICE FETCH (NEW WORKING FORMAT)
   // ------------------------------------------------------------
   const getRealtime = useCallback(async (coin: Coin) => {
     const key = coin.id;
+
     if (realtimeCache.current[key]) return realtimeCache.current[key];
 
-    const url =
-      coin.type === "crypto"
-        ? `/api/price?ids=${coin.id}`
-        : `/api/price?fiats=${coin.symbol}`;
-
+    const url = `/api/price?base=${coin.id}&quote=usd`;
     const r = await fetch(url);
-    const d = await r.json();
+    const j = await r.json();
 
-    let price = 1;
-
-    if (coin.type === "crypto") price = d.crypto?.[coin.id]?.usd ?? 0;
-    else price = d.fiat?.[coin.symbol] ?? 0;
-
+    const price = typeof j.price === "number" ? j.price : 0;
     realtimeCache.current[key] = price;
     return price;
   }, []);
 
   // ------------------------------------------------------------
-  // CONVERSION RESULT COMPUTATION
+  // CONVERSION RESULT
   // ------------------------------------------------------------
   const computeResult = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
@@ -181,8 +165,8 @@ export default function Page() {
       getRealtime(toCoin),
     ]);
 
-    const output = a / b;
-    setResult(output * amt);
+    const ratio = a / b;
+    setResult(ratio * amt);
   }, [fromCoin, toCoin, amount, getRealtime]);
 
   useEffect(() => {
@@ -207,7 +191,7 @@ export default function Page() {
       : 365;
 
   // ------------------------------------------------------------
-  // HISTORY FETCH (with cache)
+  // HISTORY FETCH (cached)
   // ------------------------------------------------------------
   const getHistory = useCallback(
     async (base: Coin, quote: Coin, days: number) => {
@@ -221,7 +205,6 @@ export default function Page() {
 
       const arr = (d.history ?? []) as HistoryPoint[];
 
-      // Ensure sorted & numeric
       const cleaned = arr
         .filter((p) => Number.isFinite(p.value))
         .sort((a, b) => a.time - b.time);
@@ -243,10 +226,9 @@ export default function Page() {
 
       const days = rangeToDays(range);
       const hist = await getHistory(fromCoin, toCoin, days);
-
       const container = chartContainerRef.current;
 
-      await new Promise((res) => setTimeout(res, 20)); // ensure width measurable
+      await new Promise((res) => setTimeout(res, 20));
 
       const isDark = document.documentElement.classList.contains("dark");
 
@@ -287,7 +269,6 @@ export default function Page() {
       };
 
       window.addEventListener("resize", handleResize);
-
       return () => window.removeEventListener("resize", handleResize);
     }
 
@@ -295,7 +276,7 @@ export default function Page() {
   }, [fromCoin, toCoin]);
 
   // ------------------------------------------------------------
-  // UPDATE CHART WHEN RANGE OR SELECTED COINS CHANGE
+  // UPDATE CHART ON CHANGES
   // ------------------------------------------------------------
   useEffect(() => {
     if (!chartRef.current || !seriesRef.current) return;
@@ -349,9 +330,8 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // RENDER UI COMPONENTS
+  // UI COMPONENT HELPERS
   // ------------------------------------------------------------
-
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
       const disabled =
