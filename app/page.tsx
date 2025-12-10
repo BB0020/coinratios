@@ -76,6 +76,12 @@ export default function Page() {
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
+  // global debugging
+  useEffect(() => {
+    (window as any).chartRef = chartRef;
+    (window as any).seriesRef = seriesRef;
+  }, []);
+
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
 
@@ -99,7 +105,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // FILTERED DROPDOWN SEARCH
+  // FILTER COINS
   // ------------------------------------------------------------
   const filteredCoins = useCallback(
     (q: string) => {
@@ -114,7 +120,7 @@ export default function Page() {
   );
 
   // ------------------------------------------------------------
-  // PRICE FETCH
+  // REALTIME PRICE
   // ------------------------------------------------------------
   const getRealtime = useCallback(async (coin: Coin) => {
     const key = coin.id;
@@ -146,7 +152,7 @@ export default function Page() {
       setResult((a / b) * amt);
     }
 
-    const t = setTimeout(compute, 150);
+    const t = setTimeout(compute, 100);
     return () => clearTimeout(t);
   }, [amount, fromCoin, toCoin, getRealtime]);
 
@@ -154,20 +160,15 @@ export default function Page() {
   // RANGE → DAYS
   // ------------------------------------------------------------
   const rangeToDays = (r: string) =>
-    r === "24H"
-      ? 1
-      : r === "7D"
-      ? 7
-      : r === "1M"
-      ? 30
-      : r === "3M"
-      ? 90
-      : r === "6M"
-      ? 180
-      : 365;
+    r === "24H" ? 1 :
+    r === "7D"  ? 7 :
+    r === "1M"  ? 30 :
+    r === "3M"  ? 90 :
+    r === "6M"  ? 180 :
+                  365;
 
   // ------------------------------------------------------------
-  // HISTORY FETCH + CACHE
+  // HISTORY FETCH (CACHED)
   // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
@@ -185,22 +186,27 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ FINAL FIX: UNIFIED CHART LIFECYCLE ⭐
+  // ⭐ STABLE CHART LIFECYCLE (A2) ⭐
   // ------------------------------------------------------------
+  const latestBuildId = useRef<symbol | null>(null);
+
   useEffect(() => {
-    let cancelled = false;
+    if (!fromCoin || !toCoin) return;
+
+    const container = chartContainerRef.current;
+    if (!container) return;
+
+    const buildId = Symbol();
+    latestBuildId.current = buildId;
 
     async function build() {
-      if (!chartContainerRef.current || !fromCoin || !toCoin) return;
-
-      const container = chartContainerRef.current;
-
-      // 1️⃣ Load data BEFORE building chart
       const days = rangeToDays(range);
-      const hist = await getHistory(fromCoin, toCoin, days);
-      if (cancelled) return;
+      const hist = await getHistory(fromCoin as Coin, toCoin as Coin, days);
 
-      // 2️⃣ Remove any existing chart
+      // Ignore stale builds
+      if (latestBuildId.current !== buildId) return;
+
+      // Remove old chart
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
@@ -209,19 +215,20 @@ export default function Page() {
 
       const isDark = document.documentElement.classList.contains("dark");
 
-      // 3️⃣ Create chart
-      const chart = createChart(container, {
-        width: container.clientWidth,
-        height: 390,
-        layout: {
-          background: { color: isDark ? "#111" : "#fff" },
-          textColor: isDark ? "#eee" : "#111",
-        },
-        grid: {
-          vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-          horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        },
-      });
+      // Create chart
+      const chart = createChart(container as HTMLElement, {
+      width: (container as HTMLDivElement).clientWidth,
+      height: 390,
+      layout: {
+        background: { color: isDark ? "#111" : "#fff" },
+        textColor: isDark ? "#eee" : "#111",
+      },
+      grid: {
+        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+      },
+    });
+
 
       const series = chart.addAreaSeries({
         lineColor: isDark ? "#4ea1f7" : "#3b82f6",
@@ -232,33 +239,32 @@ export default function Page() {
       chartRef.current = chart;
       seriesRef.current = series;
 
-      // 4️⃣ Apply data
-      if (hist.length) {
+      // Apply data
+      if (hist.length > 0) {
         series.setData(
           hist.map((p: HistoryPoint) => ({
-          time: p.time as UTCTimestamp,
-          value: p.value,
-        }))
-
+            time: p.time as UTCTimestamp,
+            value: p.value,
+          }))
         );
         chart.timeScale().fitContent();
       } else {
         series.setData([]);
       }
 
-      // 5️⃣ Resize listener
+      // Handle resize
       const handleResize = () => {
-        chart.resize(container.clientWidth, 390);
-      };
-      window.addEventListener("resize", handleResize);
+        if (!chartRef.current) return;
+        if (container) {
+        chartRef.current.resize(container.clientWidth, 390);
+}
 
-      return () => window.removeEventListener("resize", handleResize);
+      };
+
+      window.addEventListener("resize", handleResize);
     }
 
     build();
-    return () => {
-      cancelled = true;
-    };
   }, [fromCoin, toCoin, range, getHistory]);
 
   // ------------------------------------------------------------
@@ -314,8 +320,7 @@ export default function Page() {
           className={cls}
           onClick={() => {
             if (disabled) return;
-            if (type === "from") setFromCoin(coin);
-            else setToCoin(coin);
+            type === "from" ? setFromCoin(coin) : setToCoin(coin);
             setOpenDropdown(null);
             setFromSearch("");
             setToSearch("");
@@ -401,9 +406,17 @@ export default function Page() {
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
-          1 {fromCoin.symbol} = {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+          1 {fromCoin.symbol} =
+          {" "}
+          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {" "}
+          {toCoin.symbol}
           <br />
-          1 {toCoin.symbol} = {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })} {fromCoin.symbol}
+          1 {toCoin.symbol} =
+          {" "}
+          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {" "}
+          {fromCoin.symbol}
         </div>
       </div>
     );
@@ -418,7 +431,7 @@ export default function Page() {
         <ThemeToggle />
       </div>
 
-      {/* SELECTORS */}
+      {/* TOP ROW */}
       <div
         style={{
           display: "flex",
@@ -510,10 +523,10 @@ export default function Page() {
         </div>
       </div>
 
-      {/* RESULTS */}
+      {/* RESULT */}
       {renderResult()}
 
-      {/* RANGE BUTTONS */}
+      {/* RANGES */}
       <RangeButtons />
 
       {/* CHART */}
