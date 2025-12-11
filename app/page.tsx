@@ -396,77 +396,81 @@ export default function Page() {
       container.appendChild(tooltip);
     }
 
-    chart.subscribeCrosshairMove((param) => {
-      const price = (param as any).seriesPrices?.get(series);
+      // ------------------------------------------------------------
+      // ⭐ TOOLTIP — CMC STYLE WITH CORRECT TIMESTAMP
+      // ------------------------------------------------------------
+      chart.subscribeCrosshairMove((param) => {
+        const price = (param as any).seriesPrices?.get(series);
 
-      if (!param.time || !param.point || price === undefined) {
-        tooltip.style.visibility = "hidden";
-        tooltip.style.opacity = "0";
-        return;
-      }
+        if (!param.time || !param.point || price === undefined) {
+          tooltip.style.visibility = "hidden";
+          tooltip.style.opacity = "0";
+          return;
+        }
 
-      /// ⭐ Tooltip timestamp EXACTLY matching X-axis
-      const timeScale = chartRef.current.timeScale();
+        // -------------------------
+        // FIXED TIMESTAMP CONVERSION
+        // ALWAYS MATCHES LIGHTWEIGHT-CHARTS X-AXIS
+        // -------------------------
+        let ts: Date;
 
-      let label = "";
-      try {
-        // v4 built-in formatter → ALWAYS matches x-axis formatting
-        label = timeScale.formatDateTime(param.time);
-      } catch {
-        // --- fallback (very rare) ---
-        const raw = param.time as number;
-        const ms = raw < 2000000000 ? raw * 1000 : raw;
-        const ts = new Date(ms);
-        label = ts.toLocaleString(undefined, {
+        if (typeof param.time === "object" && "year" in param.time) {
+          // Daily resolution case (lightweight-charts gives a business day object)
+          const p:any = param.time;
+          ts = new Date(p.year, p.month - 1, p.day);
+        } else {
+          // UNIX timestamp case (seconds or milliseconds)
+          const raw = Number(param.time);
+          const ms = raw < 2_000_000_000 ? raw * 1000 : raw;
+          ts = new Date(ms);
+        }
+
+        // Tooltip date
+        const dateStr = ts.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
+          year: "2-digit",
+        });
+
+        // Tooltip time (no seconds)
+        const timeStr = ts.toLocaleTimeString(undefined, {
           hour: "numeric",
           minute: "2-digit",
+          hour12: true,
         });
-      }
 
-      // split into date + time for UI consistency
-      const [dateStr, timeStr] = label.includes(", ")
-        ? label.split(", ")
-        : [label, ""];
+        tooltip.innerHTML = `
+            <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
+              ${dateStr} — ${timeStr}
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="
+                width:10px; height:10px; border-radius:50%;
+                background:${lineColor};
+              "></div>
+              <div style="font-size:15px; font-weight:600;">
+                ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+              </div>
+            </div>
+        `;
 
+        const { x, y } = param.point;
+        const w = tooltip.clientWidth;
+        const h = tooltip.clientHeight;
 
+        const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
+        const top = y - h - 16;
 
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+        tooltip.style.visibility = "visible";
 
-
-      tooltip.innerHTML = `
-        <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
-          ${dateStr} — ${timeStr}
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="
-            width:10px;
-            height:10px;
-            border-radius:50%;
-            background:${lineColor};
-          "></div>
-          <div style="font-size:15px; font-weight:600;">
-            ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          </div>
-        </div>
-      `;
-
-      const { x, y } = param.point;
-      const w = tooltip.clientWidth;
-      const h = tooltip.clientHeight;
-
-      const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
-      const top = y - h - 16;
-
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${top}px`;
-      tooltip.style.visibility = "visible";
-
-      requestAnimationFrame(() => {
-        tooltip.style.opacity = "1";
-        tooltip.style.transform = "translateY(0px)";
+        requestAnimationFrame(() => {
+          tooltip.style.opacity = "1";
+          tooltip.style.transform = "translateY(0px)";
+        });
       });
-    });
+
 
     // ------------------------------------------------------------
     // Resize handler
