@@ -338,7 +338,12 @@ export default function Page() {
     // ------------------------------------------------------------
     // CMC Trend Logic
     // ------------------------------------------------------------
-    const open = hist[0].value;
+    // Smooth the “open” like CMC does (stabilizes CG data)
+      const open =
+        hist.length >= 3
+          ? (hist[0].value + hist[1].value + hist[2].value) / 3
+          : hist[0].value;
+
     const last = hist[hist.length - 1].value;
     const rising = last > open;
 
@@ -400,18 +405,27 @@ export default function Page() {
         return;
       }
 
+      // FIXED TIMESTAMP (MATCHES X-AXIS EXACTLY)
       const raw = param.time as number;
-      const ts = new Date(raw < 2000000000 ? raw * 1000 : raw);
+      const ms = raw < 2000000000 ? raw * 1000 : raw;
 
+      // Use identical logic as x-axis: ALWAYS LOCAL TIME
+      const ts = new Date(ms);
+
+      // Tooltip date (local)
       const dateStr = ts.toLocaleDateString(undefined, {
-        month: "2-digit",
-        day: "2-digit",
+        month: "short",
+        day: "numeric",
         year: "2-digit",
       });
+
+      // Tooltip time (local)
       const timeStr = ts.toLocaleTimeString(undefined, {
         hour: "numeric",
         minute: "2-digit",
       });
+
+
 
       tooltip.innerHTML = `
         <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
