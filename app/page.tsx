@@ -76,11 +76,10 @@ export default function Page() {
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
-  // debug globals
+  // Debug exposure
   useEffect(() => {
     (window as any).chartRef = chartRef;
     (window as any).seriesRef = seriesRef;
-    (window as any).latestBuildId = null;
   }, []);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
@@ -187,81 +186,89 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ FINAL STABLE CHART LIFECYCLE (A2 FIX) ⭐
+  // ⭐ FINAL STABLE CHART LIFECYCLE WITH FIRST-LOAD FIX ⭐
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
 
-  useEffect(() => {
+  const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
+
+    const buildId = Symbol();
+    latestBuildId.current = buildId;
 
     const container = chartContainerRef.current;
     if (!container) return;
 
-    async function build() {
-      const buildId = Symbol();
-      latestBuildId.current = buildId;
-      (window as any).latestBuildId = buildId;
+    const days = rangeToDays(range);
+    const hist = await getHistory(fromCoin, toCoin, days);
 
-      const days = rangeToDays(range);
-      const hist = await getHistory(fromCoin as Coin, toCoin as Coin, days);
+    if (latestBuildId.current !== buildId) return;
 
-      // ❗ discard stale builds
-      if (latestBuildId.current !== buildId) return;
-
-      // remove old chart
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-        seriesRef.current = null;
-      }
-
-      const isDark = document.documentElement.classList.contains("dark");
-
-      const chart = createChart(container as HTMLElement, {
-        width: (container as HTMLDivElement).clientWidth,
-        height: 390,
-        layout: {
-          background: { color: isDark ? "#111" : "#fff" },
-          textColor: isDark ? "#eee" : "#111",
-        },
-        grid: {
-          vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-          horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        },
-      });
-
-      const series = chart.addAreaSeries({
-        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-        bottomColor: "rgba(0,0,0,0)",
-      });
-
-      chartRef.current = chart;
-      seriesRef.current = series;
-
-      if (hist.length > 0) {
-        series.setData(
-          hist.map((p: HistoryPoint) => ({
-            time: p.time as UTCTimestamp,
-            value: p.value,
-          }))
-        );
-        chart.timeScale().fitContent();
-      } else {
-        series.setData([]);
-      }
-
-      const handleResize = () => {
-        if (!chartRef.current) return;
-        if (!container) return;
-        chartRef.current.resize((container as HTMLDivElement).clientWidth, 390);
-      };
-
-      window.addEventListener("resize", handleResize);
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
     }
 
-    build();
+    const isDark = document.documentElement.classList.contains("dark");
+
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height: 390,
+      layout: {
+        background: { color: isDark ? "#111" : "#fff" },
+        textColor: isDark ? "#eee" : "#111",
+      },
+      grid: {
+        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+      },
+    });
+
+    const series = chart.addAreaSeries({
+      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
+      topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
+      bottomColor: "rgba(0,0,0,0)",
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    if (hist.length > 0) {
+      series.setData(
+        hist.map((p: HistoryPoint) => ({
+          time: p.time as UTCTimestamp,
+          value: p.value,
+        }))
+      );
+      chart.timeScale().fitContent();
+    } else {
+      series.setData([]);
+    }
+
+    const handleResize = () => {
+      if (!chartRef.current) return;
+      chartRef.current.resize(container.clientWidth, 390);
+    };
+
+    window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getHistory]);
+
+  // ------------------------------------------------------------
+  // CHART EFFECT WITH DELAY FIX
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (!fromCoin || !toCoin) return;
+    const container = chartContainerRef.current;
+    if (!container) return;
+
+    // ⭐ Prevent early chart builds (proven fix)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        build();
+      });
+    });
+  }, [fromCoin, toCoin, range, build]);
 
   // ------------------------------------------------------------
   // THEME UPDATE HANDLER
