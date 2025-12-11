@@ -57,7 +57,7 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
-// PAGE
+// PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
@@ -72,23 +72,18 @@ export default function Page() {
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
 
-  // CHART REFS
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
-  // DEBUG
+  const historyCache = useRef<Record<string, HistoryPoint[]>>({});
+  const realtimeCache = useRef<Record<string, number>>({});
+
+  // Debug exposure
   useEffect(() => {
     (window as any).chartRef = chartRef;
     (window as any).seriesRef = seriesRef;
-    (window as any).fromCoin = fromCoin;
-    (window as any).toCoin = toCoin;
-    (window as any).range = range;
-  });
-
-  // CACHES
-  const historyCache = useRef<Record<string, HistoryPoint[]>>({});
-  const realtimeCache = useRef<Record<string, number>>({});
+  }, []);
 
   // ------------------------------------------------------------
   // LOAD COINS
@@ -97,8 +92,8 @@ export default function Page() {
     async function loadCoins() {
       const r = await fetch("/api/coins");
       const d = await r.json();
-      const cryptoList = d.coins ?? [];
 
+      const cryptoList = d.coins ?? [];
       const final = [USD, ...cryptoList, ...FIAT_LIST];
       setAllCoins(final);
 
@@ -129,15 +124,13 @@ export default function Page() {
   // ------------------------------------------------------------
   const getRealtime = useCallback(async (coin: Coin) => {
     const key = coin.id;
-
     if (realtimeCache.current[key]) return realtimeCache.current[key];
 
     const r = await fetch(`/api/price?base=${coin.id}&quote=usd`);
     const j = await r.json();
-
     const price = typeof j.price === "number" ? j.price : 0;
-    realtimeCache.current[key] = price;
 
+    realtimeCache.current[key] = price;
     return price;
   }, []);
 
@@ -175,22 +168,8 @@ export default function Page() {
                   365;
 
   // ------------------------------------------------------------
-  // PURGE CACHE (Option 1)
-  // ------------------------------------------------------------
-  function purgePairCache(base: Coin | null, quote: Coin | null) {
-    if (!base || !quote) return;
-
-    const keys = Object.keys(historyCache.current);
-    for (const k of keys) {
-      if (k.startsWith(`${base.id}-${quote.id}`) || k.startsWith(`${quote.id}-${base.id}`)) {
-        delete historyCache.current[k];
-      }
-    }
-  }
-
-  // ------------------------------------------------------------
-  // HISTORY FETCH (FORWARD ONLY)
-  // ------------------------------------------------------------
+  // RAW HISTORY (CACHED)
+// ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
     if (historyCache.current[key]) return historyCache.current[key];
@@ -207,17 +186,38 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // BUILD TOKEN
+  // ⭐ NORMALIZED HISTORY (ALWAYS HOURLY, ALWAYS MATCHING POINT COUNTS)
+// ------------------------------------------------------------
+  const getNormalizedHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
+    let forwardBase = base;
+    let forwardQuote = quote;
+    let invert = false;
+
+    // Backend returns DAILY for fiat → crypto, so we must invert manually
+    if (base.type === "fiat") {
+      forwardBase = quote;
+      forwardQuote = base;
+      invert = true;
+    }
+
+    const hist = await getHistory(forwardBase, forwardQuote, days);
+
+    if (!invert) return hist;
+
+    // Invert values (1/value)
+    return hist.map((p: HistoryPoint) => ({
+      time: p.time,
+      value: p.value ? 1 / p.value : 0,
+    }));
+  }, [getHistory]);
+
+  // ------------------------------------------------------------
+  // CHART BUILDER
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
 
-  // ------------------------------------------------------------
-  // BUILD CHART (RACE-PROOF)
-  // ------------------------------------------------------------
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
-
-    purgePairCache(fromCoin, toCoin);
 
     const buildId = Symbol();
     latestBuildId.current = buildId;
@@ -225,24 +225,11 @@ export default function Page() {
     const container = chartContainerRef.current;
     if (!container) return;
 
-    // Wait for width > 0
-    if (container.clientWidth === 0) {
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      if (container.clientWidth === 0) {
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-      }
-    }
-    if (container.clientWidth === 0) return;
-
-    // Cancel stale builds
-    if (latestBuildId.current !== buildId) return;
-
     const days = rangeToDays(range);
-    const hist = await getHistory(fromCoin, toCoin, days);
+    const hist = await getNormalizedHistory(fromCoin, toCoin, days);
 
     if (latestBuildId.current !== buildId) return;
 
-    // Destroy old chart BEFORE building new one
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -285,17 +272,17 @@ export default function Page() {
       series.setData([]);
     }
 
+    // Resize handling
     const handleResize = () => {
       if (!chartRef.current) return;
       chartRef.current.resize(container.clientWidth, 390);
     };
-
     window.addEventListener("resize", handleResize);
-  }, [fromCoin, toCoin, range, getHistory]);
+  }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   // ------------------------------------------------------------
-  // EFFECT: BUILD CHART SAFELY
-  // ------------------------------------------------------------
+  // CHART EFFECT (DELAY TO FIX FIRST-LOAD RACE)
+// ------------------------------------------------------------
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
     const container = chartContainerRef.current;
@@ -309,8 +296,8 @@ export default function Page() {
   }, [fromCoin, toCoin, range, build]);
 
   // ------------------------------------------------------------
-  // EFFECT: THEME CHANGE
-  // ------------------------------------------------------------
+  // THEME UPDATE HANDLER
+// ------------------------------------------------------------
   useEffect(() => {
     const handler = () => {
       if (!chartRef.current || !seriesRef.current) return;
@@ -339,8 +326,8 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // RENDER DROPDOWNS
-  // ------------------------------------------------------------
+  // DROPDOWN HELPERS
+// ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
       const disabled =
@@ -400,7 +387,7 @@ export default function Page() {
 
   // ------------------------------------------------------------
   // RANGE BUTTONS
-  // ------------------------------------------------------------
+// ------------------------------------------------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
 
@@ -429,8 +416,8 @@ export default function Page() {
   };
 
   // ------------------------------------------------------------
-  // RESULT
-  // ------------------------------------------------------------
+  // RESULT DISPLAY
+// ------------------------------------------------------------
   const renderResult = () => {
     if (!result || !fromCoin || !toCoin) return null;
 
@@ -465,7 +452,7 @@ export default function Page() {
 
   // ------------------------------------------------------------
   // MAIN UI
-  // ------------------------------------------------------------
+// ------------------------------------------------------------
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
       <div style={{ textAlign: "right", marginBottom: "10px" }}>
@@ -525,14 +512,13 @@ export default function Page() {
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* SWAP (FULL REBUILD) */}
+        {/* SWAP */}
         <div
           className="swap-circle"
           style={{ marginTop: "38px" }}
           onClick={() => {
             if (fromCoin && toCoin) {
               const f = fromCoin;
-              purgePairCache(fromCoin, toCoin);
               setFromCoin(toCoin);
               setToCoin(f);
             }
@@ -568,7 +554,7 @@ export default function Page() {
       {/* RESULT */}
       {renderResult()}
 
-      {/* RANGE SELECT */}
+      {/* RANGE BUTTONS */}
       <RangeButtons />
 
       {/* CHART */}
