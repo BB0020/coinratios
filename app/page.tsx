@@ -387,8 +387,41 @@ export default function Page() {
 
   
     // ------------------------------------------------------------
-    // ⭐ TOOLTIP — v4 Safe Version
+    // ⭐ TOOLTIP — v4 Safe Version WITH CORRECT TIMESTAMP RESOLVER
     // ------------------------------------------------------------
+
+    // Timestamp resolver that ALWAYS matches Lightweight-Charts x-axis
+    function resolveChartTime(t: any): Date {
+      // Case 1: BusinessDay object (used for daily candles)
+      if (typeof t === "object" && "year" in t) {
+        const d = new Date(t.year, t.month - 1, t.day);
+        return new Date(
+          d.getFullYear(),
+          d.getMonth(),
+          d.getDate(),
+          d.getHours(),
+          d.getMinutes(),
+          0
+        );
+      }
+
+      // Case 2: UNIX timestamp (seconds or ms)
+      const raw = Number(t);
+      const ms = raw < 2_000_000_000 ? raw * 1000 : raw;
+
+      const d = new Date(ms);
+
+      // Force seconds to zero (no seconds in tooltip)
+      return new Date(
+        d.getFullYear(),
+        d.getMonth(),
+        d.getDate(),
+        d.getHours(),
+        d.getMinutes(),
+        0
+      );
+    }
+
     let tooltip = tooltipRef.current;
     if (!tooltip) {
       tooltip = createTooltipElement();
@@ -396,80 +429,64 @@ export default function Page() {
       container.appendChild(tooltip);
     }
 
-      // ------------------------------------------------------------
-      // ⭐ TOOLTIP — CMC STYLE WITH CORRECT TIMESTAMP
-      // ------------------------------------------------------------
-      chart.subscribeCrosshairMove((param) => {
-        const price = (param as any).seriesPrices?.get(series);
+    chart.subscribeCrosshairMove((param) => {
+      const price = (param as any).seriesPrices?.get(series);
 
-        if (!param.time || !param.point || price === undefined) {
-          tooltip.style.visibility = "hidden";
-          tooltip.style.opacity = "0";
-          return;
-        }
+      if (!param.time || !param.point || price === undefined) {
+        tooltip.style.visibility = "hidden";
+        tooltip.style.opacity = "0";
+        return;
+      }
 
-        // -------------------------
-        // FIXED TIMESTAMP CONVERSION
-        // ALWAYS MATCHES LIGHTWEIGHT-CHARTS X-AXIS
-        // -------------------------
-        let ts: Date;
+      // Convert timestamp EXACTLY like the x-axis does
+      const ts = resolveChartTime(param.time);
 
-        if (typeof param.time === "object" && "year" in param.time) {
-          // Daily resolution case (lightweight-charts gives a business day object)
-          const p:any = param.time;
-          ts = new Date(p.year, p.month - 1, p.day);
-        } else {
-          // UNIX timestamp case (seconds or milliseconds)
-          const raw = Number(param.time);
-          const ms = raw < 2_000_000_000 ? raw * 1000 : raw;
-          ts = new Date(ms);
-        }
-
-        // Tooltip date
-        const dateStr = ts.toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-          year: "2-digit",
-        });
-
-        // Tooltip time (no seconds)
-        const timeStr = ts.toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        });
-
-        tooltip.innerHTML = `
-            <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
-              ${dateStr} — ${timeStr}
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="
-                width:10px; height:10px; border-radius:50%;
-                background:${lineColor};
-              "></div>
-              <div style="font-size:15px; font-weight:600;">
-                ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-              </div>
-            </div>
-        `;
-
-        const { x, y } = param.point;
-        const w = tooltip.clientWidth;
-        const h = tooltip.clientHeight;
-
-        const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
-        const top = y - h - 16;
-
-        tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${top}px`;
-        tooltip.style.visibility = "visible";
-
-        requestAnimationFrame(() => {
-          tooltip.style.opacity = "1";
-          tooltip.style.transform = "translateY(0px)";
-        });
+      const dateStr = ts.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "2-digit",
       });
+
+      const timeStr = ts.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+
+      tooltip.innerHTML = `
+        <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
+          ${dateStr} — ${timeStr}
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="
+            width:10px;
+            height:10px;
+            border-radius:50%;
+            background:${lineColor};
+          "></div>
+          <div style="font-size:15px; font-weight:600;">
+            ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          </div>
+        </div>
+      `;
+
+      const { x, y } = param.point;
+      const w = tooltip.clientWidth;
+      const h = tooltip.clientHeight;
+
+      const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
+      const top = y - h - 16;
+
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+      tooltip.style.visibility = "visible";
+
+      requestAnimationFrame(() => {
+        tooltip.style.opacity = "1";
+        tooltip.style.transform = "translateY(0px)";
+      });
+    });
+
 
 
     // ------------------------------------------------------------
