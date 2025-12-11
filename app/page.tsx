@@ -380,61 +380,7 @@ export default function Page() {
 
     chart.timeScale().fitContent();
 
-    // ------------------------------------------------------------
-    // ⭐ PRICE BADGE UPDATE
-    // ------------------------------------------------------------
-    let badge = container.querySelector(".price-badge") as HTMLDivElement;
-    if (!badge) {
-      badge = createPriceBadge();
-      container.appendChild(badge);
-    }
-
-    const pct = ((last - open) / open) * 100;
-    const arrow = rising ? "▲" : "▼";
-    const arrowColor = rising ? "#d1fae5" : "#fecaca";
-
-    badge.style.background = rising ? "#16c784" : "#ea3943";
-    badge.style.opacity = "0";
-
-    badge.innerHTML = `
-      <div style="display:flex; align-items:center; gap:6px;">
-        <div style="font-size:15px; font-weight:600;">
-          $${last.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-        </div>
-        <div style="
-          display:flex;
-          align-items:center;
-          gap:4px;
-          font-size:13px;
-          font-weight:600;
-          color:${arrowColor};
-        ">
-          ${arrow}
-          ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%
-        </div>
-      </div>
-    `;
-
-    requestAnimationFrame(() => {
-      badge.style.opacity = "1";
-      badge.style.transform = "translateY(0px)";
-    });
-
-    const y = series.priceToCoordinate(last);
-    if (y !== null) {
-      badge.animate(
-        [
-          { top: badge.style.top || `${y}px` },
-          { top: `${y - 18}px` },
-        ],
-        {
-          duration: 220,
-          easing: "cubic-bezier(0.25, 0.1, 0.25, 1)",
-          fill: "forwards",
-        }
-      );
-    }
-
+  
     // ------------------------------------------------------------
     // ⭐ TOOLTIP — v4 Safe Version
     // ------------------------------------------------------------
@@ -454,7 +400,9 @@ export default function Page() {
         return;
       }
 
-      const ts = new Date((param.time as number) * 1000);
+      const raw = param.time as number;
+      const ts = new Date(raw < 2000000000 ? raw * 1000 : raw);
+
       const dateStr = ts.toLocaleDateString(undefined, {
         month: "2-digit",
         day: "2-digit",
