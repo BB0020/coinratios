@@ -167,7 +167,7 @@ export default function Page() {
     r === "3M"  ? 90 :
     r === "6M"  ? 180 :
                   365;
-    // ------------------------------------------------------------
+      // ------------------------------------------------------------
   // RAW HISTORY (CACHED)
   // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
@@ -186,7 +186,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ NORMALIZED HISTORY
+  // NORMALIZED HISTORY
   // ------------------------------------------------------------
   const getNormalizedHistory = useCallback(
     async (base: Coin, quote: Coin, days: number) => {
@@ -194,7 +194,7 @@ export default function Page() {
       let forwardQuote = quote;
       let invert = false;
 
-      if (base.type === "fiat") {
+      if (base.type === "fiat" && quote.type !== "fiat") {
         forwardBase = quote;
         forwardQuote = base;
         invert = true;
@@ -211,9 +211,9 @@ export default function Page() {
     [getHistory]
   );
 
-  // =====================================================================================
-  // ⭐ TOOLTIP CREATION (CMC STYLE)
-  // =====================================================================================
+  // ------------------------------------------------------------
+  // TOOLTIP (CMC STYLE)
+  // ------------------------------------------------------------
   function createTooltipElement(): HTMLDivElement {
     const el = document.createElement("div");
     el.style.position = "absolute";
@@ -235,32 +235,84 @@ export default function Page() {
     return el;
   }
 
-  // =====================================================================================
-  // ⭐ PRICE BADGE CREATION (CMC STYLE)
-  // =====================================================================================
-  function createPriceBadge(): HTMLDivElement {
-    const el = document.createElement("div");
-    el.className = "price-badge";
-    el.style.position = "absolute";
-    el.style.right = "12px";
-    el.style.top = "12px";
-    el.style.padding = "6px 12px";
-    el.style.borderRadius = "8px";
-    el.style.fontSize = "14px";
-    el.style.fontWeight = "600";
-    el.style.pointerEvents = "none";
-    el.style.color = "#fff";
-    el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-    el.style.opacity = "0";
-    el.style.transform = "translateY(6px)";
-    el.style.transition =
-      "opacity 0.25s ease-out, transform 0.25s ease-out";
-    return el;
+  // ------------------------------------------------------------
+  // SMOOTH CMC-STYLE SEGMENTATION
+  // ------------------------------------------------------------
+  function splitIntoSegments(
+    hist: HistoryPoint[],
+    open: number
+  ): { green: HistoryPoint[]; red: HistoryPoint[] } {
+    const green: HistoryPoint[] = [];
+    const red: HistoryPoint[] = [];
+
+    for (let i = 0; i < hist.length - 1; i++) {
+      const a = hist[i];
+      const b = hist[i + 1];
+
+      const aAbove = a.value >= open;
+      const bAbove = b.value >= open;
+
+      // If both are above → entire segment is green
+      if (aAbove && bAbove) {
+        green.push(a, b);
+        continue;
+      }
+
+      // If both are below → entire segment is red
+      if (!aAbove && !bAbove) {
+        red.push(a, b);
+        continue;
+      }
+
+      // Otherwise: crossover exists → interpolate exact crossing
+      const tA = a.time;
+      const tB = b.time;
+      const vA = a.value;
+      const vB = b.value;
+
+      const ratio = (open - vA) / (vB - vA);
+      const crossTime = tA + (tB - tA) * ratio;
+
+      const crossPoint: HistoryPoint = {
+        time: crossTime,
+        value: open,
+      };
+
+      if (aAbove && !bAbove) {
+        // green → crossover → red
+        green.push(a, crossPoint);
+        red.push(crossPoint, b);
+      } else {
+        // red → crossover → green
+        red.push(a, crossPoint);
+        green.push(crossPoint, b);
+      }
+    }
+
+    return { green, red };
   }
 
-  // =====================================================================================
-  // ⭐ CHART BUILDER — CMC STYLE (v4-compatible)
-  // =====================================================================================
+  // ------------------------------------------------------------
+  // PRICE MARKER (RIGHT SIDE)
+  // ------------------------------------------------------------
+  function applyRightPriceMarker(series: any) {
+    series.applyOptions({
+      lastValueVisible: true,
+      priceLineVisible: false,
+      autoscaleInfoProvider: (orig: any) => {
+        const src = orig();
+        src.priceScale = {
+          ...src.priceScale,
+          position: "right",
+        };
+        return src;
+      },
+    });
+  }
+
+  // ------------------------------------------------------------
+  // CMC CHART BUILDER
+  // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
 
   const build = useCallback(async () => {
@@ -278,7 +330,7 @@ export default function Page() {
 
     if (latestBuildId.current !== buildId) return;
 
-    // Remove old chart
+    // Destroy old chart
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -287,9 +339,7 @@ export default function Page() {
 
     const isDark = document.documentElement.classList.contains("dark");
 
-    // ------------------------------------------------------------
     // Create chart
-    // ------------------------------------------------------------
     const chart = createChart(container, {
       width: container.clientWidth,
       height: 390,
@@ -309,14 +359,17 @@ export default function Page() {
         borderVisible: false,
         timeVisible: true,
         tickMarkFormatter: (time: UTCTimestamp) => {
-          const d = new Date((time as number) * 1000);
+          const raw = time as number;
+          const ts = new Date(raw < 2000000000 ? raw * 1000 : raw);
+
           if (range === "24H") {
-            return d.toLocaleTimeString(undefined, {
+            return ts.toLocaleTimeString(undefined, {
               hour: "numeric",
               hour12: true,
             });
           }
-          return d.toLocaleDateString(undefined, {
+
+          return ts.toLocaleDateString(undefined, {
             month: "short",
             day: "numeric",
           });
@@ -336,28 +389,19 @@ export default function Page() {
     chartRef.current = chart;
 
     // ------------------------------------------------------------
-    // CMC Trend Logic
+    // SEGMENTATION BASED ON OPEN PRICE
     // ------------------------------------------------------------
     const open = hist[0].value;
-    const last = hist[hist.length - 1].value;
-    const rising = last > open;
-
-    const lineColor = rising ? "#16c784" : "#ea3943";
-    const topColor = rising
-      ? "rgba(22,199,132,0.45)"
-      : "rgba(234,57,67,0.45)";
-    const bottomColor = rising
-      ? "rgba(22,199,132,0.05)"
-      : "rgba(234,57,67,0.05)";
+    const { green, red } = splitIntoSegments(hist, open);
 
     // ------------------------------------------------------------
-    // Area Series (v4-compliant price formatter)
+    // Create green series
     // ------------------------------------------------------------
-    const series = chart.addAreaSeries({
-      lineColor,
+    const greenSeries = chart.addAreaSeries({
+      lineColor: "#16c784",
+      topColor: "rgba(22,199,132,0.45)",
+      bottomColor: "rgba(22,199,132,0.05)",
       lineWidth: 3,
-      topColor,
-      bottomColor,
       priceFormat: {
         type: "custom",
         formatter: (p: number) => {
@@ -369,74 +413,52 @@ export default function Page() {
       },
     });
 
-    seriesRef.current = series;
-
-    series.setData(
-      hist.map((p: HistoryPoint) => ({
+    greenSeries.setData(
+      green.map((p: HistoryPoint) => ({
         time: p.time as UTCTimestamp,
         value: p.value,
       }))
     );
 
+    // ------------------------------------------------------------
+    // Create red series
+    // ------------------------------------------------------------
+    const redSeries = chart.addAreaSeries({
+      lineColor: "#ea3943",
+      topColor: "rgba(234,57,67,0.45)",
+      bottomColor: "rgba(234,57,67,0.05)",
+      lineWidth: 3,
+      priceFormat: {
+        type: "custom",
+        formatter: (p: number) => {
+          if (p >= 1_000_000_000) return (p / 1_000_000_000).toFixed(2) + "B";
+          if (p >= 1_000_000) return (p / 1_000_000).toFixed(2) + "M";
+          if (p >= 1_000) return (p / 1_000).toFixed(2) + "K";
+          return p.toFixed(2);
+        },
+      },
+    });
+
+    redSeries.setData(
+      red.map((p: HistoryPoint) => ({
+        time: p.time as UTCTimestamp,
+        value: p.value,
+      }))
+    );
+
+    // Store references
+    seriesRef.current = { greenSeries, redSeries };
+
     chart.timeScale().fitContent();
 
     // ------------------------------------------------------------
-    // ⭐ PRICE BADGE UPDATE
+    // RIGHT-SIDE LAST PRICE MARKER
     // ------------------------------------------------------------
-    let badge = container.querySelector(".price-badge") as HTMLDivElement;
-    if (!badge) {
-      badge = createPriceBadge();
-      container.appendChild(badge);
-    }
-
-    const pct = ((last - open) / open) * 100;
-    const arrow = rising ? "▲" : "▼";
-    const arrowColor = rising ? "#d1fae5" : "#fecaca";
-
-    badge.style.background = rising ? "#16c784" : "#ea3943";
-    badge.style.opacity = "0";
-
-    badge.innerHTML = `
-      <div style="display:flex; align-items:center; gap:6px;">
-        <div style="font-size:15px; font-weight:600;">
-          $${last.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-        </div>
-        <div style="
-          display:flex;
-          align-items:center;
-          gap:4px;
-          font-size:13px;
-          font-weight:600;
-          color:${arrowColor};
-        ">
-          ${arrow}
-          ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%
-        </div>
-      </div>
-    `;
-
-    requestAnimationFrame(() => {
-      badge.style.opacity = "1";
-      badge.style.transform = "translateY(0px)";
-    });
-
-    const y = series.priceToCoordinate(last);
-    if (y !== null) {
-      badge.animate(
-        [
-          { top: badge.style.top || `${y}px` },
-          { top: `${y - 18}px` },
-        ],
-        {
-          duration: 220,
-          easing: "cubic-bezier(0.25, 0.1, 0.25, 1)",
-          fill: "forwards",
-        }
-      );
-    }
+    applyRightPriceMarker(greenSeries);
+    applyRightPriceMarker(redSeries);
 
     // ------------------------------------------------------------
-    // ⭐ TOOLTIP — v4 Safe Version
+    // TOOLTIP (CENTERED AT CURSOR)
     // ------------------------------------------------------------
     let tooltip = tooltipRef.current;
     if (!tooltip) {
@@ -446,20 +468,33 @@ export default function Page() {
     }
 
     chart.subscribeCrosshairMove((param) => {
-      const price = (param as any).seriesPrices?.get(series);
-
-      if (!param.time || !param.point || price === undefined) {
+      const point = param.point;
+      const time = param.time;
+      if (!time || !point) {
         tooltip.style.visibility = "hidden";
         tooltip.style.opacity = "0";
         return;
       }
 
-      const ts = new Date((param.time as number) * 1000);
+      const price =
+        (param as any).seriesPrices?.get(greenSeries) ??
+        (param as any).seriesPrices?.get(redSeries);
+
+      if (price === undefined) {
+        tooltip.style.visibility = "hidden";
+        tooltip.style.opacity = "0";
+        return;
+      }
+
+      const raw = time as number;
+      const ts = new Date(raw < 2000000000 ? raw * 1000 : raw);
+
       const dateStr = ts.toLocaleDateString(undefined, {
         month: "2-digit",
         day: "2-digit",
         year: "2-digit",
       });
+
       const timeStr = ts.toLocaleTimeString(undefined, {
         hour: "numeric",
         minute: "2-digit",
@@ -474,15 +509,19 @@ export default function Page() {
             width:10px;
             height:10px;
             border-radius:50%;
-            background:${lineColor};
+            background:${
+              price >= open ? "#16c784" : "#ea3943"
+            };
           "></div>
           <div style="font-size:15px; font-weight:600;">
-            ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+            ${price.toLocaleString(undefined, {
+              maximumFractionDigits: 8,
+            })}
           </div>
         </div>
       `;
 
-      const { x, y } = param.point;
+      const { x, y } = point;
       const w = tooltip.clientWidth;
       const h = tooltip.clientHeight;
 
@@ -499,19 +538,16 @@ export default function Page() {
       });
     });
 
-    // ------------------------------------------------------------
     // Resize handler
-    // ------------------------------------------------------------
     const handleResize = () => {
       if (!chartRef.current) return;
       chartRef.current.resize(container.clientWidth, 390);
     };
-
     window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   // ------------------------------------------------------------
-  // BUILD ON LOAD / CHANGE
+  // BUILD CHART
   // ------------------------------------------------------------
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
@@ -519,11 +555,10 @@ export default function Page() {
     if (!container) return;
 
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        build();
-      });
+      requestAnimationFrame(() => build());
     });
   }, [fromCoin, toCoin, range, build]);
+
 
   // ------------------------------------------------------------
   // THEME UPDATE HANDLER
