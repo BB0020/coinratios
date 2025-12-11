@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import {
-  createChart,
-  type UTCTimestamp,
-} from "lightweight-charts";
+import { createChart, type UTCTimestamp } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
 // ------------------------------------------------------------
@@ -26,511 +23,280 @@ interface HistoryPoint {
 // ------------------------------------------------------------
 // CONSTANTS
 // ------------------------------------------------------------
-const USD: Coin = {
-  id: "usd",
-  symbol: "USD",
-  name: "US Dollar",
-  image: "https://flagcdn.com/us.svg",
-  type: "fiat",
-};
-
-const FIAT_LIST: Coin[] = [
-  { id: "AUD", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
-  { id: "BRL", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
-  { id: "CAD", symbol: "CAD", name: "Canadian Dollar", image: "https://flagcdn.com/ca.svg", type: "fiat" },
-  { id: "CHF", symbol: "CHF", name: "Swiss Franc", image: "https://flagcdn.com/ch.svg", type: "fiat" },
-  { id: "CNY", symbol: "CNY", name: "Chinese Yuan", image: "https://flagcdn.com/cn.svg", type: "fiat" },
-  { id: "DKK", symbol: "DKK", name: "Danish Krone", image: "https://flagcdn.com/dk.svg", type: "fiat" },
-  { id: "EUR", symbol: "EUR", name: "Euro", image: "https://flagcdn.com/eu.svg", type: "fiat" },
-  { id: "GBP", symbol: "GBP", name: "British Pound", image: "https://flagcdn.com/gb.svg", type: "fiat" },
-  { id: "HKD", symbol: "HKD", name: "Hong Kong Dollar", image: "https://flagcdn.com/hk.svg", type: "fiat" },
-  { id: "INR", symbol: "INR", name: "Indian Rupee", image: "https://flagcdn.com/in.svg", type: "fiat" },
-  { id: "JPY", symbol: "JPY", name: "Japanese Yen", image: "https://flagcdn.com/jp.svg", type: "fiat" },
-  { id: "KRW", symbol: "KRW", name: "South Korean Won", image: "https://flagcdn.com/kr.svg", type: "fiat" },
-  { id: "MXN", symbol: "MXN", name: "Mexican Peso", image: "https://flagcdn.com/mx.svg", type: "fiat" },
-  { id: "NOK", symbol: "NOK", name: "Norwegian Krone", image: "https://flagcdn.com/no.svg", type: "fiat" },
-  { id: "NZD", symbol: "NZD", name: "New Zealand Dollar", image: "https://flagcdn.com/nz.svg", type: "fiat" },
-  { id: "SEK", symbol: "SEK", name: "Swedish Krona", image: "https://flagcdn.com/se.svg", type: "fiat" },
-  { id: "SGD", symbol: "SGD", name: "Singapore Dollar", image: "https://flagcdn.com/sg.svg", type: "fiat" },
-  { id: "TRY", symbol: "TRY", name: "Turkish Lira", image: "https://flagcdn.com/tr.svg", type: "fiat" },
-  { id: "ZAR", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
+const ranges = [
+  { label: "24H", days: 1 },
+  { label: "7D", days: 7 },
+  { label: "1M", days: 30 },
+  { label: "3M", days: 90 },
+  { label: "6M", days: 180 },
+  { label: "1Y", days: 365 },
 ];
 
 // ------------------------------------------------------------
-// PAGE COMPONENT
+// MAIN PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
+  const [amount, setAmount] = useState("1");
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
-
-  const [amount, setAmount] = useState("1");
-  const [range, setRange] = useState("24H");
-  const [result, setResult] = useState<number | null>(null);
-
-  const [openDropdown, setOpenDropdown] = useState<"from" | "to" | null>(null);
-  const [fromSearch, setFromSearch] = useState("");
-  const [toSearch, setToSearch] = useState("");
+  const [range, setRange] = useState("7D");
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
-  // Debug exposure
-  useEffect(() => {
-    (window as any).chartRef = chartRef;
-    (window as any).seriesRef = seriesRef;
-  }, []);
-
+  // forward-only cache
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
-  const realtimeCache = useRef<Record<string, number>>({});
 
   // ------------------------------------------------------------
-  // LOAD COINS
+  // LOAD COINS (TOP 300 + FIATS)
   // ------------------------------------------------------------
   useEffect(() => {
     async function loadCoins() {
-      const r = await fetch("/api/coins");
-      const d = await r.json();
+      try {
+        const res = await fetch(
+          "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=300&page=1&sparkline=false"
+        );
+        const crypto = await res.json();
 
-      const cryptoList = d.coins ?? [];
-      const final = [USD, ...cryptoList, ...FIAT_LIST];
-      setAllCoins(final);
+        const cryptoCoins: Coin[] = crypto.map((c: any) => ({
+          id: c.id,
+          symbol: c.symbol,
+          name: c.name,
+          image: c.image,
+          type: "crypto",
+        }));
 
-      const btc = final.find((c) => c.id === "bitcoin");
-      setFromCoin(btc || final[1]);
-      setToCoin(USD);
+        const fiats: Coin[] = [
+          { id: "usd", symbol: "usd", name: "US Dollar", image: "https://flagcdn.com/us.svg", type: "fiat" },
+          { id: "eur", symbol: "eur", name: "Euro", image: "https://flagcdn.com/eu.svg", type: "fiat" },
+          { id: "gbp", symbol: "gbp", name: "British Pound", image: "https://flagcdn.com/gb.svg", type: "fiat" },
+          { id: "jpy", symbol: "jpy", name: "Japanese Yen", image: "https://flagcdn.com/jp.svg", type: "fiat" },
+          { id: "cad", symbol: "cad", name: "Canadian Dollar", image: "https://flagcdn.com/ca.svg", type: "fiat" },
+          { id: "aud", symbol: "aud", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
+          { id: "chf", symbol: "chf", name: "Swiss Franc", image: "https://flagcdn.com/ch.svg", type: "fiat" },
+          { id: "hkd", symbol: "hkd", name: "Hong Kong Dollar", image: "https://flagcdn.com/hk.svg", type: "fiat" },
+          { id: "nzd", symbol: "nzd", name: "New Zealand Dollar", image: "https://flagcdn.com/nz.svg", type: "fiat" },
+        ];
+
+        const coins = [...fiats, ...cryptoCoins];
+        setAllCoins(coins);
+
+        const btc = coins.find((c) => c.id === "bitcoin")!;
+        const usd = coins.find((c) => c.id === "usd")!;
+        setFromCoin(btc);
+        setToCoin(usd);
+      } catch (e) {
+        console.error("COIN LOAD ERROR:", e);
+      }
     }
     loadCoins();
   }, []);
 
   // ------------------------------------------------------------
-  // FILTER COINS
+  // FETCH HISTORY (FORWARD ONLY)
+  // NEVER fetch reverse — always invert cached forward
   // ------------------------------------------------------------
-  const filteredCoins = useCallback(
-    (q: string) => {
-      const s = q.toLowerCase();
-      return allCoins.filter(
-        (c) =>
-          c.symbol.toLowerCase().includes(s) ||
-          c.name.toLowerCase().includes(s)
-      );
-    },
-    [allCoins]
-  );
+  const getHistory = useCallback(async (base: Coin, quote: Coin, days: number): Promise<HistoryPoint[]> => {
+    const forwardKey = `${base.id}-${quote.id}-${days}`;
+    const reverseKey = `${quote.id}-${base.id}-${days}`;
 
-  // ------------------------------------------------------------
-  // REALTIME PRICE
-  // ------------------------------------------------------------
-  const getRealtime = useCallback(async (coin: Coin) => {
-    const key = coin.id;
-    if (realtimeCache.current[key]) return realtimeCache.current[key];
+    // Forward exists → return immediately
+    if (historyCache.current[forwardKey]) {
+      return historyCache.current[forwardKey];
+    }
 
-    const r = await fetch(`/api/price?base=${coin.id}&quote=usd`);
-    const j = await r.json();
-    const price = typeof j.price === "number" ? j.price : 0;
+    // Reverse exists → invert
+    if (historyCache.current[reverseKey]) {
+      const inverted = historyCache.current[reverseKey].map((p) => ({
+        time: p.time,
+        value: 1 / p.value,
+      }));
+      historyCache.current[forwardKey] = inverted;
+      return inverted;
+    }
 
-    realtimeCache.current[key] = price;
-    return price;
+    // Fetch base→usd and quote→usd
+    const urlA = `/api/history?base=${base.id}&quote=usd&days=${days}`;
+    const urlB = `/api/history?base=${quote.id}&quote=usd&days=${days}`;
+    const [resA, resB] = await Promise.all([
+      fetch(urlA).then((r) => r.json()),
+      fetch(urlB).then((r) => r.json()),
+    ]);
+
+    const aHist: HistoryPoint[] = resA.history;
+    const bHist: HistoryPoint[] = resB.history;
+
+    if (!aHist?.length || !bHist?.length) return [];
+
+    // Align timestamps
+    const mapB = new Map(bHist.map((p) => [p.time, p.value]));
+    const aligned: HistoryPoint[] = [];
+    for (const p of aHist) {
+      if (mapB.has(p.time)) {
+        const bVal = mapB.get(p.time)!; // Non-null
+        aligned.push({
+          time: p.time,
+          value: p.value / bVal,
+        });
+      }
+    }
+
+    historyCache.current[forwardKey] = aligned;
+    return aligned;
   }, []);
 
   // ------------------------------------------------------------
-  // COMPUTE RESULT
+  // BUILD / UPDATE CHART
   // ------------------------------------------------------------
-  useEffect(() => {
-    async function compute() {
-      if (!fromCoin || !toCoin) return;
+  const buildChart = useCallback(
+    async (base: Coin, quote: Coin, rangeLabel: string) => {
+      const days = ranges.find((r) => r.label === rangeLabel)!.days;
 
-      const amt = Number(amount);
-      if (amt <= 0) return setResult(null);
+      const hist = await getHistory(base, quote, days);
+      if (!hist || hist.length < 2) return;
 
-      const [a, b] = await Promise.all([
-        getRealtime(fromCoin),
-        getRealtime(toCoin),
-      ]);
+      if (!chartRef.current) {
+        const chart = createChart(chartContainerRef.current!, {
+          width: chartContainerRef.current!.clientWidth,
+          height: 400,
+          layout: {
+            background: { color: "transparent" },
+            textColor: "var(--text-color)",
+          },
+          grid: {
+            vertLines: { color: "rgba(0,0,0,0.1)" },
+            horzLines: { color: "rgba(0,0,0,0.1)" },
+          },
+          rightPriceScale: {
+            borderColor: "rgba(197,203,206,0.8)",
+          },
+          timeScale: {
+            borderColor: "rgba(197,203,206,0.8)",
+            timeVisible: true,
+            secondsVisible: false,
+          },
+        });
 
-      setResult((a / b) * amt);
-    }
+        chartRef.current = chart;
+        seriesRef.current = chart.addAreaSeries({
+          lineColor: "#2962FF",
+          topColor: "rgba(41,98,255,0.4)",
+          bottomColor: "rgba(41,98,255,0.1)",
+        });
+      }
 
-    const t = setTimeout(compute, 100);
-    return () => clearTimeout(t);
-  }, [amount, fromCoin, toCoin, getRealtime]);
-
-  // ------------------------------------------------------------
-  // RANGE → DAYS
-  // ------------------------------------------------------------
-  const rangeToDays = (r: string) =>
-    r === "24H" ? 1 :
-    r === "7D"  ? 7 :
-    r === "1M"  ? 30 :
-    r === "3M"  ? 90 :
-    r === "6M"  ? 180 :
-                  365;
-
-  // ------------------------------------------------------------
-  // HISTORY (CACHED)
-  // ------------------------------------------------------------
-  const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
-    const key = `${base.id}-${quote.id}-${days}`;
-    if (historyCache.current[key]) return historyCache.current[key];
-
-    const r = await fetch(`/api/history?base=${base.id}&quote=${quote.id}&days=${days}`);
-    const d = await r.json();
-
-    const cleaned = (d.history ?? [])
-      .filter((p: any) => Number.isFinite(p.value))
-      .sort((a: any, b: any) => a.time - b.time);
-
-    historyCache.current[key] = cleaned;
-    return cleaned;
-  }, []);
-
-  // ------------------------------------------------------------
-  // ⭐ FINAL STABLE CHART LIFECYCLE WITH FIRST-LOAD FIX ⭐
-  // ------------------------------------------------------------
-  const latestBuildId = useRef<symbol | null>(null);
-
-  const build = useCallback(async () => {
-    if (!fromCoin || !toCoin) return;
-
-    const buildId = Symbol();
-    latestBuildId.current = buildId;
-
-    const container = chartContainerRef.current;
-    if (!container) return;
-
-    const days = rangeToDays(range);
-    const hist = await getHistory(fromCoin, toCoin, days);
-
-    if (latestBuildId.current !== buildId) return;
-
-    if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-    }
-
-    const isDark = document.documentElement.classList.contains("dark");
-
-    const chart = createChart(container, {
-      width: container.clientWidth,
-      height: 390,
-      layout: {
-        background: { color: isDark ? "#111" : "#fff" },
-        textColor: isDark ? "#eee" : "#111",
-      },
-      grid: {
-        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-      },
-    });
-
-    const series = chart.addAreaSeries({
-      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-      bottomColor: "rgba(0,0,0,0)",
-    });
-
-    chartRef.current = chart;
-    seriesRef.current = series;
-
-    if (hist.length > 0) {
-      series.setData(
-        hist.map((p: HistoryPoint) => ({
+      seriesRef.current.setData(
+        hist.map((p) => ({
           time: p.time as UTCTimestamp,
           value: p.value,
         }))
       );
-      chart.timeScale().fitContent();
-    } else {
-      series.setData([]);
-    }
 
-    const handleResize = () => {
-      if (!chartRef.current) return;
-      chartRef.current.resize(container.clientWidth, 390);
-    };
-
-    window.addEventListener("resize", handleResize);
-  }, [fromCoin, toCoin, range, getHistory]);
+      chartRef.current.timeScale().fitContent();
+    },
+    [getHistory]
+  );
 
   // ------------------------------------------------------------
-  // CHART EFFECT WITH DELAY FIX
+  // WHENEVER USER CHANGES COIN OR RANGE → REBUILD CHART
   // ------------------------------------------------------------
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    const container = chartContainerRef.current;
-    if (!container) return;
+    if (!chartContainerRef.current) return;
 
-    // ⭐ Prevent early chart builds (proven fix)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        build();
+        buildChart(fromCoin, toCoin, range);
       });
     });
-  }, [fromCoin, toCoin, range, build]);
+  }, [fromCoin, toCoin, range, buildChart]);
 
   // ------------------------------------------------------------
-  // THEME UPDATE HANDLER
-  // ------------------------------------------------------------
-  useEffect(() => {
-    const handler = () => {
-      if (!chartRef.current || !seriesRef.current) return;
-
-      const isDark = document.documentElement.classList.contains("dark");
-
-      chartRef.current.applyOptions({
-        layout: {
-          background: { color: isDark ? "#111" : "#fff" },
-          textColor: isDark ? "#eee" : "#111",
-        },
-        grid: {
-          vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-          horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        },
-      });
-
-      seriesRef.current.applyOptions({
-        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-      });
-    };
-
-    window.addEventListener("theme-change", handler);
-    return () => window.removeEventListener("theme-change", handler);
-  }, []);
-
-  // ------------------------------------------------------------
-  // DROPDOWN HELPERS
-  // ------------------------------------------------------------
-  const renderRow = useCallback(
-    (coin: Coin, type: "from" | "to") => {
-      const disabled =
-        (type === "from" && coin.id === toCoin?.id) ||
-        (type === "to" && coin.id === fromCoin?.id);
-
-      const selected =
-        (type === "from" && coin.id === fromCoin?.id) ||
-        (type === "to" && coin.id === toCoin?.id);
-
-      let cls = "dropdown-row";
-      if (selected) cls += " dropdown-selected";
-      if (disabled) cls += " dropdown-disabled";
-
-      return (
-        <div
-          key={coin.id}
-          className={cls}
-          onClick={() => {
-            if (disabled) return;
-            type === "from" ? setFromCoin(coin) : setToCoin(coin);
-            setOpenDropdown(null);
-            setFromSearch("");
-            setToSearch("");
-          }}
-        >
-          <img src={coin.image} className="dropdown-flag" />
-          <div>
-            <div className="dropdown-symbol">{coin.symbol}</div>
-            <div className="dropdown-name">{coin.name}</div>
-          </div>
-        </div>
-      );
-    },
-    [fromCoin, toCoin]
-  );
-
-  const renderDropdown = useCallback(
-    (type: "from" | "to") => {
-      const search = type === "from" ? fromSearch : toSearch;
-      const setSearch = type === "from" ? setFromSearch : setToSearch;
-
-      return (
-        <div className="dropdown-panel">
-          <input
-            className="dropdown-search"
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {filteredCoins(search).map((c) => renderRow(c, type))}
-        </div>
-      );
-    },
-    [filteredCoins, fromSearch, toSearch, renderRow]
-  );
-
-  // ------------------------------------------------------------
-  // RANGE BUTTONS
-  // ------------------------------------------------------------
-  const RangeButtons = () => {
-    const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "35px" }}>
-        {ranges.map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            style={{
-              margin: "0 4px",
-              padding: "8px 14px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: range === r ? "var(--accent)" : "var(--card-bg)",
-              color: range === r ? "#fff" : "var(--text)",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  // ------------------------------------------------------------
-  // RESULT
-  // ------------------------------------------------------------
-  const renderResult = () => {
-    if (!result || !fromCoin || !toCoin) return null;
-
-    const baseRate = result / Number(amount);
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "40px" }}>
-        <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
-        </div>
-
-        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
-        </div>
-
-        <div style={{ marginTop: "10px", opacity: 0.7 }}>
-          1 {fromCoin.symbol} =
-          {" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          {" "}
-          {toCoin.symbol}
-          <br />
-          1 {toCoin.symbol} =
-          {" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          {" "}
-          {fromCoin.symbol}
-        </div>
-      </div>
-    );
-  };
-
-  // ------------------------------------------------------------
-  // MAIN UI
+  // UI RENDER
   // ------------------------------------------------------------
   return (
-    <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
-      <div style={{ textAlign: "right", marginBottom: "10px" }}>
-        <ThemeToggle />
+    <div className="page-wrapper">
+      <ThemeToggle />
+
+      {/* AMOUNT INPUT */}
+      <div className="amount-row">
+        <input
+          className="amount-input"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
       </div>
 
-      {/* TOP ROW */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "flex-start",
-          gap: "32px",
-          flexWrap: "wrap",
-          marginTop: "10px",
-        }}
-      >
-        {/* AMOUNT */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <h3>AMOUNT</h3>
-          <input
-            value={amount}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) setAmount(v);
-            }}
-            className="selector-box"
-            style={{ width: "260px" }}
-          />
-          {(amount === "" || Number(amount) <= 0) && (
-            <div style={{ color: "red", marginTop: "6px", fontSize: "14px" }}>
-              Enter a Number Greater than 0
-            </div>
-          )}
-        </div>
-
+      {/* FROM + TO SELECTORS */}
+      <div className="selector-row">
         {/* FROM */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-          <h3>FROM</h3>
-          <div
-            className="selector-box"
-            onClick={() => {
-              setOpenDropdown(openDropdown === "from" ? null : "from");
-              setFromSearch("");
+        <div className="coin-box">
+          <img className="coin-img" src={fromCoin?.image} alt="" />
+          <select
+            className="coin-select"
+            value={fromCoin?.id || ""}
+            onChange={(e) => {
+              const coin = allCoins.find((c) => c.id === e.target.value);
+              if (coin) setFromCoin(coin);
             }}
           >
-            {fromCoin && (
-              <>
-                <img src={fromCoin.image} className="selector-img" />
-                <div>
-                  <div className="selector-symbol">{fromCoin.symbol}</div>
-                  <div className="selector-name">{fromCoin.name}</div>
-                </div>
-              </>
-            )}
-          </div>
-          {openDropdown === "from" && renderDropdown("from")}
+            {allCoins.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
         </div>
 
-        {/* SWAP */}
-        <div
-          className="swap-circle"
-          style={{ marginTop: "38px" }}
+        {/* SWAP BUTTON */}
+        <button
+          className="swap-button"
           onClick={() => {
             if (fromCoin && toCoin) {
-              const f = fromCoin;
-              setFromCoin(toCoin);
-              setToCoin(f);
+              const oldFrom = fromCoin;
+              const oldTo = toCoin;
+              setFromCoin(oldTo);
+              setToCoin(oldFrom);
             }
           }}
         >
-          <div className="swap-icon" />
-        </div>
+          ⇅
+        </button>
 
         {/* TO */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-          <h3>TO</h3>
-          <div
-            className="selector-box"
-            onClick={() => {
-              setOpenDropdown(openDropdown === "to" ? null : "to");
-              setToSearch("");
+        <div className="coin-box">
+          <img className="coin-img" src={toCoin?.image} alt="" />
+          <select
+            className="coin-select"
+            value={toCoin?.id || ""}
+            onChange={(e) => {
+              const coin = allCoins.find((c) => c.id === e.target.value);
+              if (coin) setToCoin(coin);
             }}
           >
-            {toCoin && (
-              <>
-                <img src={toCoin.image} className="selector-img" />
-                <div>
-                  <div className="selector-symbol">{toCoin.symbol}</div>
-                  <div className="selector-name">{toCoin.name}</div>
-                </div>
-              </>
-            )}
-          </div>
-          {openDropdown === "to" && renderDropdown("to")}
+            {allCoins.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* RESULT */}
-      {renderResult()}
-
       {/* RANGE BUTTONS */}
-      <RangeButtons />
+      <div className="range-row">
+        {ranges.map((r) => (
+          <button
+            key={r.label}
+            className={`range-btn ${range === r.label ? "active" : ""}`}
+            onClick={() => setRange(r.label)}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
 
       {/* CHART */}
       <div
