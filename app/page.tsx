@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import {
   createChart,
+  ColorType,
   type UTCTimestamp,
 } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
@@ -55,7 +56,6 @@ const FIAT_LIST: Coin[] = [
   { id: "TRY", symbol: "TRY", name: "Turkish Lira", image: "https://flagcdn.com/tr.svg", type: "fiat" },
   { id: "ZAR", symbol: "ZAR", name: "South African Rand", image: "https://flagcdn.com/za.svg", type: "fiat" },
 ];
-
 // ------------------------------------------------------------
 // PAGE COMPONENT
 // ------------------------------------------------------------
@@ -75,6 +75,7 @@ export default function Page() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
@@ -169,7 +170,7 @@ export default function Page() {
 
   // ------------------------------------------------------------
   // RAW HISTORY (CACHED)
-// ------------------------------------------------------------
+  // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
     if (historyCache.current[key]) return historyCache.current[key];
@@ -186,389 +187,545 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ NORMALIZED HISTORY (ALWAYS HOURLY, ALWAYS MATCHING POINT COUNTS)
+  // ⭐ NORMALIZED HISTORY (ALWAYS HOURLY, ALWAYS CORRECT DIRECTION)
+  // ------------------------------------------------------------
+  const getNormalizedHistory = useCallback(
+    async (base: Coin, quote: Coin, days: number) => {
+      let forwardBase = base;
+      let forwardQuote = quote;
+      let invert = false;
+
+      // If fiat is base, invert manually
+      if (base.type === "fiat") {
+        forwardBase = quote;
+        forwardQuote = base;
+        invert = true;
+      }
+
+      const hist = await getHistory(forwardBase, forwardQuote, days);
+
+      if (!invert) return hist;
+
+      return hist.map((p: HistoryPoint) => ({
+        time: p.time,
+        value: p.value ? 1 / p.value : 0,
+      }));
+    },
+    [getHistory]
+  );
 // ------------------------------------------------------------
-  const getNormalizedHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
-    let forwardBase = base;
-    let forwardQuote = quote;
-    let invert = false;
-
-    // Backend returns DAILY for fiat → crypto, so we must invert manually
-    if (base.type === "fiat") {
-      forwardBase = quote;
-      forwardQuote = base;
-      invert = true;
-    }
-
-    const hist = await getHistory(forwardBase, forwardQuote, days);
-
-    if (!invert) return hist;
-
-    // Invert values (1/value)
-    return hist.map((p: HistoryPoint) => ({
-      time: p.time,
-      value: p.value ? 1 / p.value : 0,
-    }));
-  }, [getHistory]);
-
-  // ------------------------------------------------------------
-  // CHART BUILDER
-  // ------------------------------------------------------------
-  const latestBuildId = useRef<symbol | null>(null);
-
-  const build = useCallback(async () => {
-    if (!fromCoin || !toCoin) return;
-
-    const buildId = Symbol();
-    latestBuildId.current = buildId;
-
-    const container = chartContainerRef.current;
-    if (!container) return;
-
-    const days = rangeToDays(range);
-    const hist = await getNormalizedHistory(fromCoin, toCoin, days);
-
-    if (latestBuildId.current !== buildId) return;
-
-    if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
-    }
-
-    const isDark = document.documentElement.classList.contains("dark");
-
-    const chart = createChart(container, {
-      width: container.clientWidth,
-      height: 390,
-      layout: {
-        background: { color: isDark ? "#111" : "#fff" },
-        textColor: isDark ? "#eee" : "#111",
-      },
-      grid: {
-        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-      },
-    });
-
-    const series = chart.addAreaSeries({
-      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-      bottomColor: "rgba(0,0,0,0)",
-    });
-
-    chartRef.current = chart;
-    seriesRef.current = series;
-
-    if (hist.length > 0) {
-      series.setData(
-        hist.map((p: HistoryPoint) => ({
-          time: p.time as UTCTimestamp,
-          value: p.value,
-        }))
-      );
-      chart.timeScale().fitContent();
-    } else {
-      series.setData([]);
-    }
-
-    // Resize handling
-    const handleResize = () => {
-      if (!chartRef.current) return;
-      chartRef.current.resize(container.clientWidth, 390);
-    };
-    window.addEventListener("resize", handleResize);
-  }, [fromCoin, toCoin, range, getNormalizedHistory]);
-
-  // ------------------------------------------------------------
-  // CHART EFFECT (DELAY TO FIX FIRST-LOAD RACE)
+// ⭐ CMC-STYLE CHART BUILDER
 // ------------------------------------------------------------
-  useEffect(() => {
-    if (!fromCoin || !toCoin) return;
-    const container = chartContainerRef.current;
-    if (!container) return;
+const latestBuildId = useRef<symbol | null>(null);
 
+const build = useCallback(async () => {
+  if (!fromCoin || !toCoin) return;
+
+  const buildId = Symbol();
+  latestBuildId.current = buildId;
+
+  const container = chartContainerRef.current;
+  if (!container) return;
+
+  const days = rangeToDays(range);
+  const hist = await getNormalizedHistory(fromCoin, toCoin, days);
+
+  if (latestBuildId.current !== buildId) return;
+
+  // Remove previous chart
+  if (chartRef.current) {
+    chartRef.current.remove();
+    chartRef.current = null;
+    seriesRef.current = null;
+  }
+
+  const isDark = document.documentElement.classList.contains("dark");
+
+  // ------------------------------------------
+  // CREATE MAIN CHART
+  // ------------------------------------------
+  const chart = createChart(container, {
+    width: container.clientWidth,
+    height: 390,
+    layout: {
+      background: { color: "transparent" },
+      textColor: isDark ? "#e5e7eb" : "#374151",
+    },
+    grid: {
+      vertLines: { color: "transparent" },
+      horzLines: { color: "transparent" },
+    },
+    crosshair: {
+      mode: 1,
+      vertLine: {
+        width: 1,
+        color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)",
+        style: 2,
+        labelVisible: false,
+      },
+      horzLine: { visible: false },
+    },
+    rightPriceScale: {
+      borderVisible: false,
+      scaleMargins: {
+        top: 0.25,
+        bottom: 0.1,
+      },
+    },
+    timeScale: {
+      borderVisible: false,
+      timeVisible: true,
+      secondsVisible: false,
+    },
+  });
+
+  // ------------------------------------------
+  // DETERMINE CHART COLOR TREND
+  // ------------------------------------------
+  const first = hist[0]?.value ?? 0;
+  const last = hist[hist.length - 1]?.value ?? 0;
+  const rising = last >= first;
+
+  const lineColor = rising ? "#16c784" : "#ea3943";
+  const topColor = rising
+    ? "rgba(22,199,132,0.45)"
+    : "rgba(234,57,67,0.45)";
+  const bottomColor = rising
+    ? "rgba(22,199,132,0.05)"
+    : "rgba(234,57,67,0.05)";
+
+  // ------------------------------------------
+  // MAIN AREA SERIES (SMOOTH CURVE)
+  // ------------------------------------------
+  const series = chart.addAreaSeries({
+    lineColor,
+    lineWidth: 3,
+    topColor,
+    bottomColor,
+    priceFormat: {
+      type: "price",
+      precision: 6,
+      minMove: 0.000001,
+    },
+  });
+
+  chartRef.current = chart;
+  seriesRef.current = series;
+
+  // Set data
+  if (hist.length > 0) {
+    series.setData(
+      hist.map((p: HistoryPoint) => ({
+        time: p.time as UTCTimestamp,
+        value: p.value,
+      }))
+    );
+    chart.timeScale().fitContent();
+  }
+
+  // ------------------------------------------
+  // RESIZE HANDLER
+  // ------------------------------------------
+  const handleResize = () => {
+    if (!chartRef.current) return;
+    chartRef.current.resize(container.clientWidth, 390);
+  };
+  window.addEventListener("resize", handleResize);
+
+}, [fromCoin, toCoin, range, getNormalizedHistory]);
+
+// ------------------------------------------------------------
+// CHART EFFECT — ENSURES FIRST RENDER IS CORRECT
+// ------------------------------------------------------------
+useEffect(() => {
+  if (!fromCoin || !toCoin) return;
+  const container = chartContainerRef.current;
+  if (!container) return;
+
+  requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        build();
-      });
+      build();
     });
-  }, [fromCoin, toCoin, range, build]);
+  });
+}, [fromCoin, toCoin, range, build]);
+// ------------------------------------------------------------
+// ⭐ TOOLTIP CREATION (CMC STYLE)
+// ------------------------------------------------------------
+function createTooltipElement(): HTMLDivElement {
+  const el = document.createElement("div");
+  el.style.position = "absolute";
+  el.style.zIndex = "1000";
+  el.style.pointerEvents = "none";
+  el.style.visibility = "hidden";
+  el.style.padding = "10px 14px";
+  el.style.borderRadius = "10px";
+  el.style.background = "#ffffff";
+  el.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
+  el.style.fontSize = "13px";
+  el.style.fontWeight = "500";
+  el.style.color = "#111";
+  el.style.transition = "transform 0.08s ease-out";
+  return el;
+}
+
+useEffect(() => {
+  const container = chartContainerRef.current;
+  if (!container) return;
+
+  // Create tooltip once
+  if (!tooltipRef.current) {
+    tooltipRef.current = createTooltipElement();
+    container.appendChild(tooltipRef.current);
+  }
+
+  const tooltip = tooltipRef.current;
+
+  if (!chartRef.current || !tooltip) return;
+
+  const chart = chartRef.current;
+  const series = seriesRef.current;
 
   // ------------------------------------------------------------
-  // THEME UPDATE HANDLER
-// ------------------------------------------------------------
-  useEffect(() => {
-    const handler = () => {
-      if (!chartRef.current || !seriesRef.current) return;
-
-      const isDark = document.documentElement.classList.contains("dark");
-
-      chartRef.current.applyOptions({
-        layout: {
-          background: { color: isDark ? "#111" : "#fff" },
-          textColor: isDark ? "#eee" : "#111",
-        },
-        grid: {
-          vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-          horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        },
-      });
-
-      seriesRef.current.applyOptions({
-        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-      });
-    };
-
-    window.addEventListener("theme-change", handler);
-    return () => window.removeEventListener("theme-change", handler);
-  }, []);
-
+  // ⭐ CROSSHAIR MOVE HANDLER
   // ------------------------------------------------------------
-  // DROPDOWN HELPERS
+  const handleMove = (param: any) => {
+    if (!param.time || !param.point) {
+      tooltip.style.visibility = "hidden";
+      return;
+    }
+
+    const price = param.seriesPrices.get(series);
+    if (price === undefined) {
+      tooltip.style.visibility = "hidden";
+      return;
+    }
+
+    const x = param.point.x;
+    const y = param.point.y;
+
+    // ------------------------------------------
+    // FORMAT DATE + TIME IN USER LOCAL TIME
+    // ------------------------------------------
+    const ts = (param.time as number) * 1000;
+    const d = new Date(ts);
+
+    const dateStr = d.toLocaleDateString(undefined, {
+      year: "2-digit",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+    const timeStr = d.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+
+    // -------------------------------------------------------
+    // DETERMINE TREND COLOR FOR DOT
+    // -------------------------------------------------------
+    const lineColor =
+      series.options().lineColor ?? "#16c784";
+
+    // -------------------------------------------------------
+    // BUILD TOOLTIP HTML
+    // -------------------------------------------------------
+    tooltip.innerHTML = `
+      <div style="font-size:12px; opacity:0.85; margin-bottom:6px;">
+        ${dateStr} — ${timeStr}
+      </div>
+
+      <div style="display:flex; align-items:center; gap:6px;">
+        <div style="
+          width:8px;
+          height:8px;
+          border-radius:50%;
+          background:${lineColor};
+        "></div>
+
+        <div style="font-size:15px; font-weight:600;">
+          ${price.toLocaleString(undefined, {
+            maximumFractionDigits: 8,
+          })}
+        </div>
+      </div>
+    `;
+
+    // ------------------------------------------
+    // POSITION ABOVE CURSOR
+    // ------------------------------------------
+    const tooltipWidth = tooltip.clientWidth;
+    const tooltipHeight = tooltip.clientHeight;
+
+    const left = Math.min(
+      Math.max(x - tooltipWidth / 2, 0),
+      container.clientWidth - tooltipWidth
+    );
+
+    const top = y - tooltipHeight - 14; // 14px gap above cursor
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.style.visibility = "visible";
+  };
+
+  // Attach listener
+  chart.subscribeCrosshairMove(handleMove);
+
+  // Cleanup
+  return () => {
+    chart.unsubscribeCrosshairMove(handleMove);
+  };
+}, [fromCoin, toCoin, range]);
 // ------------------------------------------------------------
-  const renderRow = useCallback(
-    (coin: Coin, type: "from" | "to") => {
-      const disabled =
-        (type === "from" && coin.id === toCoin?.id) ||
-        (type === "to" && coin.id === fromCoin?.id);
+// DROPDOWN HELPERS
+// ------------------------------------------------------------
+const renderRow = useCallback(
+  (coin: Coin, type: "from" | "to") => {
+    const disabled =
+      (type === "from" && coin.id === toCoin?.id) ||
+      (type === "to" && coin.id === fromCoin?.id);
 
-      const selected =
-        (type === "from" && coin.id === fromCoin?.id) ||
-        (type === "to" && coin.id === toCoin?.id);
+    const selected =
+      (type === "from" && coin.id === fromCoin?.id) ||
+      (type === "to" && coin.id === toCoin?.id);
 
-      let cls = "dropdown-row";
-      if (selected) cls += " dropdown-selected";
-      if (disabled) cls += " dropdown-disabled";
+    let cls = "dropdown-row";
+    if (selected) cls += " dropdown-selected";
+    if (disabled) cls += " dropdown-disabled";
 
-      return (
+    return (
+      <div
+        key={coin.id}
+        className={cls}
+        onClick={() => {
+          if (disabled) return;
+          type === "from" ? setFromCoin(coin) : setToCoin(coin);
+          setOpenDropdown(null);
+          setFromSearch("");
+          setToSearch("");
+        }}
+      >
+        <img src={coin.image} className="dropdown-flag" />
+        <div>
+          <div className="dropdown-symbol">{coin.symbol}</div>
+          <div className="dropdown-name">{coin.name}</div>
+        </div>
+      </div>
+    );
+  },
+  [fromCoin, toCoin]
+);
+
+const renderDropdown = useCallback(
+  (type: "from" | "to") => {
+    const search = type === "from" ? fromSearch : toSearch;
+    const setSearch = type === "from" ? setFromSearch : setToSearch;
+
+    return (
+      <div className="dropdown-panel">
+        <input
+          className="dropdown-search"
+          placeholder="Search..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {filteredCoins(search).map((c) => renderRow(c, type))}
+      </div>
+    );
+  },
+  [filteredCoins, fromSearch, toSearch, renderRow]
+);
+
+// ------------------------------------------------------------
+// RANGE BUTTONS
+// ------------------------------------------------------------
+const RangeButtons = () => {
+  const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
+
+  return (
+    <div style={{ textAlign: "center", marginTop: "35px" }}>
+      {ranges.map((r) => (
+        <button
+          key={r}
+          onClick={() => setRange(r)}
+          style={{
+            margin: "0 4px",
+            padding: "8px 14px",
+            borderRadius: "8px",
+            border: "1px solid var(--card-border)",
+            background: range === r ? "var(--accent)" : "var(--card-bg)",
+            color: range === r ? "#fff" : "var(--text)",
+            cursor: "pointer",
+            fontSize: "14px",
+          }}
+        >
+          {r}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+// ------------------------------------------------------------
+// RESULT DISPLAY
+// ------------------------------------------------------------
+const renderResult = () => {
+  if (!result || !fromCoin || !toCoin) return null;
+
+  const baseRate = result / Number(amount);
+
+  return (
+    <div style={{ textAlign: "center", marginTop: "40px" }}>
+      <div style={{ fontSize: "22px", opacity: 0.65 }}>
+        1 {fromCoin.symbol} → {toCoin.symbol}
+      </div>
+
+      <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
+        {result.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+        {toCoin.symbol}
+      </div>
+
+      <div style={{ marginTop: "10px", opacity: 0.7 }}>
+        1 {fromCoin.symbol} ={" "}
+        {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+        {toCoin.symbol}
+        <br />
+        1 {toCoin.symbol} ={" "}
+        {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
+        {fromCoin.symbol}
+      </div>
+    </div>
+  );
+};
+
+// ------------------------------------------------------------
+// MAIN UI
+// ------------------------------------------------------------
+return (
+  <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
+    <div style={{ textAlign: "right", marginBottom: "10px" }}>
+      <ThemeToggle />
+    </div>
+
+    {/* TOP ROW */}
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        gap: "32px",
+        flexWrap: "wrap",
+        marginTop: "10px",
+      }}
+    >
+      {/* AMOUNT */}
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        <h3>AMOUNT</h3>
+        <input
+          value={amount}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) setAmount(v);
+          }}
+          className="selector-box"
+          style={{ width: "260px" }}
+        />
+        {(amount === "" || Number(amount) <= 0) && (
+          <div style={{ color: "red", marginTop: "6px", fontSize: "14px" }}>
+            Enter a Number Greater than 0
+          </div>
+        )}
+      </div>
+
+      {/* FROM */}
+      <div
+        style={{ display: "flex", flexDirection: "column", position: "relative" }}
+      >
+        <h3>FROM</h3>
         <div
-          key={coin.id}
-          className={cls}
+          className="selector-box"
           onClick={() => {
-            if (disabled) return;
-            type === "from" ? setFromCoin(coin) : setToCoin(coin);
-            setOpenDropdown(null);
+            setOpenDropdown(openDropdown === "from" ? null : "from");
             setFromSearch("");
+          }}
+        >
+          {fromCoin && (
+            <>
+              <img src={fromCoin.image} className="selector-img" />
+              <div>
+                <div className="selector-symbol">{fromCoin.symbol}</div>
+                <div className="selector-name">{fromCoin.name}</div>
+              </div>
+            </>
+          )}
+        </div>
+        {openDropdown === "from" && renderDropdown("from")}
+      </div>
+
+      {/* SWAP BUTTON */}
+      <div
+        className="swap-circle"
+        style={{ marginTop: "38px" }}
+        onClick={() => {
+          if (fromCoin && toCoin) {
+            const f = fromCoin;
+            setFromCoin(toCoin);
+            setToCoin(f);
+          }
+        }}
+      >
+        <div className="swap-icon" />
+      </div>
+
+      {/* TO */}
+      <div
+        style={{ display: "flex", flexDirection: "column", position: "relative" }}
+      >
+        <h3>TO</h3>
+        <div
+          className="selector-box"
+          onClick={() => {
+            setOpenDropdown(openDropdown === "to" ? null : "to");
             setToSearch("");
           }}
         >
-          <img src={coin.image} className="dropdown-flag" />
-          <div>
-            <div className="dropdown-symbol">{coin.symbol}</div>
-            <div className="dropdown-name">{coin.name}</div>
-          </div>
-        </div>
-      );
-    },
-    [fromCoin, toCoin]
-  );
-
-  const renderDropdown = useCallback(
-    (type: "from" | "to") => {
-      const search = type === "from" ? fromSearch : toSearch;
-      const setSearch = type === "from" ? setFromSearch : setToSearch;
-
-      return (
-        <div className="dropdown-panel">
-          <input
-            className="dropdown-search"
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {filteredCoins(search).map((c) => renderRow(c, type))}
-        </div>
-      );
-    },
-    [filteredCoins, fromSearch, toSearch, renderRow]
-  );
-
-  // ------------------------------------------------------------
-  // RANGE BUTTONS
-// ------------------------------------------------------------
-  const RangeButtons = () => {
-    const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "35px" }}>
-        {ranges.map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            style={{
-              margin: "0 4px",
-              padding: "8px 14px",
-              borderRadius: "8px",
-              border: "1px solid var(--card-border)",
-              background: range === r ? "var(--accent)" : "var(--card-bg)",
-              color: range === r ? "#fff" : "var(--text)",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
-    );
-  };
-
-  // ------------------------------------------------------------
-  // RESULT DISPLAY
-// ------------------------------------------------------------
-  const renderResult = () => {
-    if (!result || !fromCoin || !toCoin) return null;
-
-    const baseRate = result / Number(amount);
-
-    return (
-      <div style={{ textAlign: "center", marginTop: "40px" }}>
-        <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
-        </div>
-
-        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
-        </div>
-
-        <div style={{ marginTop: "10px", opacity: 0.7 }}>
-          1 {fromCoin.symbol} =
-          {" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          {" "}
-          {toCoin.symbol}
-          <br />
-          1 {toCoin.symbol} =
-          {" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          {" "}
-          {fromCoin.symbol}
-        </div>
-      </div>
-    );
-  };
-
-  // ------------------------------------------------------------
-  // MAIN UI
-// ------------------------------------------------------------
-  return (
-    <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
-      <div style={{ textAlign: "right", marginBottom: "10px" }}>
-        <ThemeToggle />
-      </div>
-
-      {/* TOP ROW */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "flex-start",
-          gap: "32px",
-          flexWrap: "wrap",
-          marginTop: "10px",
-        }}
-      >
-        {/* AMOUNT */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <h3>AMOUNT</h3>
-          <input
-            value={amount}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) setAmount(v);
-            }}
-            className="selector-box"
-            style={{ width: "260px" }}
-          />
-          {(amount === "" || Number(amount) <= 0) && (
-            <div style={{ color: "red", marginTop: "6px", fontSize: "14px" }}>
-              Enter a Number Greater than 0
-            </div>
+          {toCoin && (
+            <>
+              <img src={toCoin.image} className="selector-img" />
+              <div>
+                <div className="selector-symbol">{toCoin.symbol}</div>
+                <div className="selector-name">{toCoin.name}</div>
+              </div>
+            </>
           )}
         </div>
-
-        {/* FROM */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-          <h3>FROM</h3>
-          <div
-            className="selector-box"
-            onClick={() => {
-              setOpenDropdown(openDropdown === "from" ? null : "from");
-              setFromSearch("");
-            }}
-          >
-            {fromCoin && (
-              <>
-                <img src={fromCoin.image} className="selector-img" />
-                <div>
-                  <div className="selector-symbol">{fromCoin.symbol}</div>
-                  <div className="selector-name">{fromCoin.name}</div>
-                </div>
-              </>
-            )}
-          </div>
-          {openDropdown === "from" && renderDropdown("from")}
-        </div>
-
-        {/* SWAP */}
-        <div
-          className="swap-circle"
-          style={{ marginTop: "38px" }}
-          onClick={() => {
-            if (fromCoin && toCoin) {
-              const f = fromCoin;
-              setFromCoin(toCoin);
-              setToCoin(f);
-            }
-          }}
-        >
-          <div className="swap-icon" />
-        </div>
-
-        {/* TO */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
-          <h3>TO</h3>
-          <div
-            className="selector-box"
-            onClick={() => {
-              setOpenDropdown(openDropdown === "to" ? null : "to");
-              setToSearch("");
-            }}
-          >
-            {toCoin && (
-              <>
-                <img src={toCoin.image} className="selector-img" />
-                <div>
-                  <div className="selector-symbol">{toCoin.symbol}</div>
-                  <div className="selector-name">{toCoin.name}</div>
-                </div>
-              </>
-            )}
-          </div>
-          {openDropdown === "to" && renderDropdown("to")}
-        </div>
+        {openDropdown === "to" && renderDropdown("to")}
       </div>
-
-      {/* RESULT */}
-      {renderResult()}
-
-      {/* RANGE BUTTONS */}
-      <RangeButtons />
-
-      {/* CHART */}
-      <div
-        ref={chartContainerRef}
-        style={{
-          width: "100%",
-          height: "400px",
-          marginTop: "35px",
-          borderRadius: "14px",
-          border: "1px solid var(--card-border)",
-          background: "var(--card-bg)",
-        }}
-      />
     </div>
-  );
+
+    {/* RESULT */}
+    {renderResult()}
+
+    {/* RANGE BUTTONS */}
+    <RangeButtons />
+
+    {/* CHART */}
+    <div
+      ref={chartContainerRef}
+      style={{
+        width: "100%",
+        height: "400px",
+        marginTop: "35px",
+        borderRadius: "14px",
+        border: "1px solid var(--card-border)",
+        background: "var(--card-bg)",
+        position: "relative",
+        overflow: "visible",
+      }}
+    />
+  </div>
+);
+// ------------------------------------------------------------
+// END OF PAGE COMPONENT
+// ------------------------------------------------------------
 }
