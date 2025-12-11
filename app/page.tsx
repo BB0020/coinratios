@@ -405,25 +405,32 @@ export default function Page() {
         return;
       }
 
-      // FIXED TIMESTAMP (MATCHES X-AXIS EXACTLY)
-      const raw = param.time as number;
-      const ms = raw < 2000000000 ? raw * 1000 : raw;
+      /// ⭐ Tooltip timestamp EXACTLY matching X-axis
+      const timeScale = chartRef.current.timeScale();
 
-      // Use identical logic as x-axis: ALWAYS LOCAL TIME
-      const ts = new Date(ms);
+      let label = "";
+      try {
+        // v4 built-in formatter → ALWAYS matches x-axis formatting
+        label = timeScale.formatDateTime(param.time);
+      } catch {
+        // --- fallback (very rare) ---
+        const raw = param.time as number;
+        const ms = raw < 2000000000 ? raw * 1000 : raw;
+        const ts = new Date(ms);
+        label = ts.toLocaleString(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        });
+      }
 
-      // Tooltip date (local)
-      const dateStr = ts.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "2-digit",
-      });
+      // split into date + time for UI consistency
+      const [dateStr, timeStr] = label.includes(", ")
+        ? label.split(", ")
+        : [label, ""];
 
-      // Tooltip time (local)
-      const timeStr = ts.toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-      });
+
 
 
 
