@@ -57,7 +57,7 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
-// PAGE COMPONENT
+// PAGE
 // ------------------------------------------------------------
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
@@ -72,16 +72,21 @@ export default function Page() {
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
 
+  // CHART REFS
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
 
-  // Debug exposure
+  // DEBUG
   useEffect(() => {
     (window as any).chartRef = chartRef;
     (window as any).seriesRef = seriesRef;
-  }, []);
+    (window as any).fromCoin = fromCoin;
+    (window as any).toCoin = toCoin;
+    (window as any).range = range;
+  });
 
+  // CACHES
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
 
@@ -92,8 +97,8 @@ export default function Page() {
     async function loadCoins() {
       const r = await fetch("/api/coins");
       const d = await r.json();
-
       const cryptoList = d.coins ?? [];
+
       const final = [USD, ...cryptoList, ...FIAT_LIST];
       setAllCoins(final);
 
@@ -124,13 +129,15 @@ export default function Page() {
   // ------------------------------------------------------------
   const getRealtime = useCallback(async (coin: Coin) => {
     const key = coin.id;
+
     if (realtimeCache.current[key]) return realtimeCache.current[key];
 
     const r = await fetch(`/api/price?base=${coin.id}&quote=usd`);
     const j = await r.json();
-    const price = typeof j.price === "number" ? j.price : 0;
 
+    const price = typeof j.price === "number" ? j.price : 0;
     realtimeCache.current[key] = price;
+
     return price;
   }, []);
 
@@ -168,49 +175,49 @@ export default function Page() {
                   365;
 
   // ------------------------------------------------------------
-// HISTORY (CACHED) — WITH FORWARD-ONLY LOGIC + AUTO-INVERSION
-// ------------------------------------------------------------
-const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
-  const forwardKey = `${base.id}-${quote.id}-${days}`;
-  const reverseKey = `${quote.id}-${base.id}-${days}`;
+  // PURGE CACHE (Option 1)
+  // ------------------------------------------------------------
+  function purgePairCache(base: Coin | null, quote: Coin | null) {
+    if (!base || !quote) return;
 
-  // ⭐ 1) If we already computed the forward dataset, return it
-  if (historyCache.current[forwardKey]) {
-    return historyCache.current[forwardKey];
+    const keys = Object.keys(historyCache.current);
+    for (const k of keys) {
+      if (k.startsWith(`${base.id}-${quote.id}`) || k.startsWith(`${quote.id}-${base.id}`)) {
+        delete historyCache.current[k];
+      }
+    }
   }
-
-  // ⭐ 2) If the reverse dataset exists, we invert it (NO refetch!)
-  if (historyCache.current[reverseKey]) {
-    const reversed = historyCache.current[reverseKey].map((p) => ({
-      time: p.time,
-      value: 1 / p.value,
-    }));
-    historyCache.current[forwardKey] = reversed;
-    return reversed;
-  }
-
-  // ⭐ 3) Otherwise, we fetch ONLY the forward direction
-  const r = await fetch(`/api/history?base=${base.id}&quote=${quote.id}&days=${days}`);
-  const d = await r.json();
-
-  const cleaned: HistoryPoint[] = (d.history ?? [])
-    .filter((p: any) => Number.isFinite(p.value))
-    .sort((a: any, b: any) => a.time - b.time);
-
-  // ⭐ Cache the cleaned forward dataset
-  historyCache.current[forwardKey] = cleaned;
-
-  return cleaned;
-}, []);
-
 
   // ------------------------------------------------------------
-  // ⭐ FINAL STABLE CHART LIFECYCLE WITH FIRST-LOAD FIX ⭐
+  // HISTORY FETCH (FORWARD ONLY)
+  // ------------------------------------------------------------
+  const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
+    const key = `${base.id}-${quote.id}-${days}`;
+    if (historyCache.current[key]) return historyCache.current[key];
+
+    const r = await fetch(`/api/history?base=${base.id}&quote=${quote.id}&days=${days}`);
+    const d = await r.json();
+
+    const cleaned = (d.history ?? [])
+      .filter((p: any) => Number.isFinite(p.value))
+      .sort((a: any, b: any) => a.time - b.time);
+
+    historyCache.current[key] = cleaned;
+    return cleaned;
+  }, []);
+
+  // ------------------------------------------------------------
+  // BUILD TOKEN
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
 
+  // ------------------------------------------------------------
+  // BUILD CHART (RACE-PROOF)
+  // ------------------------------------------------------------
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
+
+    purgePairCache(fromCoin, toCoin);
 
     const buildId = Symbol();
     latestBuildId.current = buildId;
@@ -218,11 +225,24 @@ const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => 
     const container = chartContainerRef.current;
     if (!container) return;
 
+    // Wait for width > 0
+    if (container.clientWidth === 0) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      if (container.clientWidth === 0) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+    }
+    if (container.clientWidth === 0) return;
+
+    // Cancel stale builds
+    if (latestBuildId.current !== buildId) return;
+
     const days = rangeToDays(range);
     const hist = await getHistory(fromCoin, toCoin, days);
 
     if (latestBuildId.current !== buildId) return;
 
+    // Destroy old chart BEFORE building new one
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -274,14 +294,13 @@ const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => 
   }, [fromCoin, toCoin, range, getHistory]);
 
   // ------------------------------------------------------------
-  // CHART EFFECT WITH DELAY FIX
+  // EFFECT: BUILD CHART SAFELY
   // ------------------------------------------------------------
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
     const container = chartContainerRef.current;
     if (!container) return;
 
-    // ⭐ Prevent early chart builds (proven fix)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         build();
@@ -290,7 +309,7 @@ const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => 
   }, [fromCoin, toCoin, range, build]);
 
   // ------------------------------------------------------------
-  // THEME UPDATE HANDLER
+  // EFFECT: THEME CHANGE
   // ------------------------------------------------------------
   useEffect(() => {
     const handler = () => {
@@ -320,7 +339,7 @@ const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => 
   }, []);
 
   // ------------------------------------------------------------
-  // DROPDOWN HELPERS
+  // RENDER DROPDOWNS
   // ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -506,13 +525,14 @@ const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => 
           {openDropdown === "from" && renderDropdown("from")}
         </div>
 
-        {/* SWAP */}
+        {/* SWAP (FULL REBUILD) */}
         <div
           className="swap-circle"
           style={{ marginTop: "38px" }}
           onClick={() => {
             if (fromCoin && toCoin) {
               const f = fromCoin;
+              purgePairCache(fromCoin, toCoin);
               setFromCoin(toCoin);
               setToCoin(f);
             }
@@ -548,7 +568,7 @@ const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => 
       {/* RESULT */}
       {renderResult()}
 
-      {/* RANGE BUTTONS */}
+      {/* RANGE SELECT */}
       <RangeButtons />
 
       {/* CHART */}
