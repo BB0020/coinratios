@@ -429,63 +429,92 @@ export default function Page() {
       container.appendChild(tooltip);
     }
 
-    chart.subscribeCrosshairMove((param) => {
-      const price = (param as any).seriesPrices?.get(series);
+        // ------------------------------------------------------------
+        // ⭐ TOOLTIP — CMC STYLE WITH CORRECT TIMESTAMP (FIXED LOCAL TIME)
+        // ------------------------------------------------------------
+        chart.subscribeCrosshairMove((param) => {
+          const price = (param as any).seriesPrices?.get(series);
 
-      if (!param.time || !param.point || price === undefined) {
-        tooltip.style.visibility = "hidden";
-        tooltip.style.opacity = "0";
-        return;
-      }
+          if (!param.time || !param.point || price === undefined) {
+            tooltip.style.visibility = "hidden";
+            tooltip.style.opacity = "0";
+            return;
+          }
 
-      // Convert timestamp EXACTLY like the x-axis does
-      const ts = resolveChartTime(param.time);
+          // ------------------------------------------------------------
+          // ALWAYS MATCH X-AXIS TIME — LIGHTWEIGHT CHARTS USES UTC SECONDS
+          // ------------------------------------------------------------
+          let ts: Date;
 
-      const dateStr = ts.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "2-digit",
-      });
+          if (typeof param.time === "object" && "year" in param.time) {
+            // Daily resolution (business day structure)
+            const t: any = param.time;
+            ts = new Date(t.year, t.month - 1, t.day);  // Local midnight
+          } else {
+            // UNIX seconds → convert to local time
+            const unixSeconds = Number(param.time);
 
-      const timeStr = ts.toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      });
+            // Lightweight-charts stores UTC timestamps
+            ts = new Date(unixSeconds * 1000);
+          }
 
-      tooltip.innerHTML = `
-        <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
-          ${dateStr} — ${timeStr}
-        </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div style="
-            width:10px;
-            height:10px;
-            border-radius:50%;
-            background:${lineColor};
-          "></div>
-          <div style="font-size:15px; font-weight:600;">
-            ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          </div>
-        </div>
-      `;
+          // ------------------------------------------------------------
+          // Format date
+          // ------------------------------------------------------------
+          const dateStr = ts.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "2-digit",
+          });
 
-      const { x, y } = param.point;
-      const w = tooltip.clientWidth;
-      const h = tooltip.clientHeight;
+          // Format time — NO seconds
+          const timeStr = ts.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
 
-      const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
-      const top = y - h - 16;
+          // ------------------------------------------------------------
+          // Tooltip HTML
+          // ------------------------------------------------------------
+          tooltip.innerHTML = `
+            <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
+              ${dateStr} — ${timeStr}
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="
+                width:10px; height:10px; border-radius:50%;
+                background:${lineColor};
+              "></div>
+              <div style="font-size:15px; font-weight:600;">
+                ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+              </div>
+            </div>
+          `;
 
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${top}px`;
-      tooltip.style.visibility = "visible";
+          // ------------------------------------------------------------
+          // Tooltip positioning
+          // ------------------------------------------------------------
+          const { x, y } = param.point;
+          const w = tooltip.clientWidth;
+          const h = tooltip.clientHeight;
 
-      requestAnimationFrame(() => {
-        tooltip.style.opacity = "1";
-        tooltip.style.transform = "translateY(0px)";
-      });
-    });
+          const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
+          const top = y - h - 16;
+
+          tooltip.style.left = `${left}px`;
+          tooltip.style.top = `${top}px`;
+          tooltip.style.visibility = "visible";
+
+          requestAnimationFrame(() => {
+            tooltip.style.opacity = "1";
+            tooltip.style.transform = "translateY(0px)";
+          });
+        });
+    // ------------------------------------------------------------
+    // end tooltip block
+    // ------------------------------------------------------------
+
 
 
 
