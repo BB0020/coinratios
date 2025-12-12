@@ -6,7 +6,6 @@ import {
   type UTCTimestamp,
   type ISeriesApi,
   type LineData,
-  type Time,
 } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
@@ -22,7 +21,7 @@ interface Coin {
 }
 
 interface HistoryPoint {
-  time: number;
+  time: number; // seconds
   value: number;
 }
 
@@ -60,7 +59,7 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
-// PAGE COMPONENT START
+// PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
@@ -75,21 +74,20 @@ export default function Page() {
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
 
+  // CHART REFS
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
-
-  const segmentSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
-  const openLineRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
-
+  const seriesRefs = useRef<ISeriesApi<"Line">[]>([]);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const openBadgeRef = useRef<HTMLDivElement | null>(null);
+  const currentBadgeRef = useRef<HTMLDivElement | null>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
-  // Debug exposure
+
+  // Debug
   useEffect(() => {
     (window as any).chartRef = chartRef;
-    (window as any).segments = segmentSeriesRefs;
   }, []);
 
   // ------------------------------------------------------------
@@ -168,14 +166,14 @@ export default function Page() {
   // ------------------------------------------------------------
   const rangeToDays = (r: string) =>
     r === "24H" ? 1 :
-    r === "7D"  ? 7 :
-    r === "1M"  ? 30 :
-    r === "3M"  ? 90 :
-    r === "6M"  ? 180 :
-                  365;
+    r === "7D" ? 7 :
+    r === "1M" ? 30 :
+    r === "3M" ? 90 :
+    r === "6M" ? 180 :
+    365;
 
   // ------------------------------------------------------------
-  // FETCH RAW HISTORY (CACHED)
+  // RAW HISTORY (CACHED)
   // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
@@ -193,47 +191,84 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // NORMALIZED HISTORY (handles fiat inversion)
+  // NORMALIZED HISTORY
   // ------------------------------------------------------------
-  const getNormalizedHistory = useCallback(
-    async (base: Coin, quote: Coin, days: number) => {
-      let forwardBase = base;
-      let forwardQuote = quote;
-      let invert = false;
+  const getNormalizedHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
+    let forwardBase = base;
+    let forwardQuote = quote;
+    let invert = false;
 
-      if (base.type === "fiat") {
-        forwardBase = quote;
-        forwardQuote = base;
-        invert = true;
-      }
+    if (base.type === "fiat") {
+      forwardBase = quote;
+      forwardQuote = base;
+      invert = true;
+    }
 
-      const hist = await getHistory(forwardBase, forwardQuote, days);
-      if (!invert) return hist;
+    const hist = await getHistory(forwardBase, forwardQuote, days);
+    if (!invert) return hist;
 
-      return hist.map((p: HistoryPoint) => ({
-        time: p.time,
-        value: p.value ? 1 / p.value : 0,
-      }));
-    },
-    [getHistory]
-  );
+    return hist.map((p: HistoryPoint) => ({
+      time: p.time,
+      value: p.value ? 1 / p.value : 0,
+    }));
+  }, [getHistory]);
+
   // ------------------------------------------------------------
-  // SEGMENTED RED/GREEN CHART BUILDER (CMC STYLE)
+  // CREATE TOOLTIP ELEMENT
   // ------------------------------------------------------------
-  const buildChart = useCallback(async () => {
+  function createTooltipElement() {
+    const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.zIndex = "1000";
+    el.style.pointerEvents = "none";
+    el.style.visibility = "hidden";
+    el.style.padding = "12px 16px";
+    el.style.borderRadius = "12px";
+    el.style.background = "rgba(255,255,255,0.97)";
+    el.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
+    el.style.fontSize = "13px";
+    el.style.fontWeight = "500";
+    el.style.color = "#111";
+    el.style.whiteSpace = "nowrap";
+    el.style.opacity = "0";
+    el.style.transition = "opacity .12s ease-out, transform .12s ease-out";
+    return el;
+  }
+
+  function createBadge(color: string) {
+    const el = document.createElement("div");
+    el.style.position = "absolute";
+    el.style.padding = "6px 10px";
+    el.style.borderRadius = "6px";
+    el.style.fontSize = "14px";
+    el.style.fontWeight = "600";
+    el.style.color = "#fff";
+    el.style.background = color;
+    el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+    el.style.pointerEvents = "none";
+    el.style.opacity = "0";
+    el.style.transition = "opacity .2s ease-out, transform .2s ease-out";
+    return el;
+  }
+
+  // ------------------------------------------------------------
+  // CHART BUILD (ONLY CHART LOGIC REPLACED)
+  // ------------------------------------------------------------
+  const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
 
     const container = chartContainerRef.current;
     if (!container) return;
 
-    // Load history
     const days = rangeToDays(range);
     const hist = await getNormalizedHistory(fromCoin, toCoin, days);
     if (!hist.length) return;
 
-    // Remove old
+    // remove old
     if (chartRef.current) {
       chartRef.current.remove();
+      seriesRefs.current.forEach(s => chartRef.current.removeSeries(s));
+      seriesRefs.current = [];
     }
 
     const isDark = document.documentElement.classList.contains("dark");
@@ -246,245 +281,235 @@ export default function Page() {
         textColor: isDark ? "#e5e7eb" : "#374151",
       },
       grid: { vertLines: { color: "transparent" }, horzLines: { color: "transparent" } },
-      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.25, bottom: 0.1 } },
+      rightPriceScale: { borderVisible: false },
       timeScale: {
         borderVisible: false,
         timeVisible: true,
-        tickMarkFormatter: (time: UTCTimestamp) => {
-          const d = new Date((time as number) * 1000);
+        tickMarkFormatter: (t: UTCTimestamp) => {
+          const d = new Date(t * 1000);
           if (range === "24H") {
-            return d.toLocaleTimeString(undefined, {
-              hour: "numeric",
-              hour12: true,
-            });
+            return d.toLocaleTimeString(undefined, { hour: "numeric", hour12: true });
           }
-          return d.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-          });
+          return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
         },
       },
-      crosshair: {
-        mode: 1,
-        vertLine: { width: 1, style: 2, color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.25)" },
-        horzLine: { visible: false },
-      },
+      crosshair: { mode: 1 },
     });
 
     chartRef.current = chart;
 
-    // ----------------------------------------
-    // Compute open price
-    // ----------------------------------------
-    const open =
-      hist.length >= 3
-        ? (hist[0].value + hist[1].value + hist[2].value) / 3
-        : hist[0].value;
-
-    // ----------------------------------------
-    // Neutral Area (behind segments)
-    // ----------------------------------------
-    const area = chart.addAreaSeries({
-      topColor: "rgba(120,120,120,0.05)",
-      bottomColor: "rgba(120,120,120,0.00)",
-      lineColor: "rgba(0,0,0,0)",
-      });
-
-    area.setData(hist.map((p: HistoryPoint) => ({
-      time: p.time,
-      value: p.value,
-    })));
-
-    areaRef.current = area;
-
-    // ----------------------------------------
-    // Dashed Open Price Line
-    // ----------------------------------------
+    // -----------------------------------------
+    // OPEN VALUE & DAShED LINE
+    // -----------------------------------------
+    const open = hist[0].value;
     const openLine = chart.addLineSeries({
-      color: "#999",
+      color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.25)",
       lineWidth: 1,
       lineStyle: 2,
     });
+    openLine.setData(
+    hist.map((p: HistoryPoint) => ({
+        time: p.time,
+        value: open,
+    }))
+);
 
-    openLine.setData(hist.map((p: HistoryPoint) => ({
-      time: p.time,
-      value: open,
-    })));
 
-    openLineRef.current = openLine;
+    // -----------------------------------------
+    // SEGMENTED SERIES (CMC STYLE)
+    // -----------------------------------------
+    const green = "#16c784";
+    const red = "#ea3943";
 
-    // ----------------------------------------
-    // Segment the history into green/red intervals
-    // ----------------------------------------
-    segmentSeriesRefs.current = [];
-
-    let currentColor: "red" | "green" =
-      hist[0].value >= open ? "green" : "red";
-
-    let buffer: LineData[] = [];
-
-    const pushSegment = () => {
-      if (!buffer.length) return;
-
-      const series = chart.addLineSeries({
-        color: currentColor === "green" ? "#16c784" : "#ea3943",
-        lineWidth: 3,
+    function createLine(color: string) {
+      const s = chart.addLineSeries({
+        color,
+        lineWidth: 2,
       });
-
-      series.setData(buffer);
-      segmentSeriesRefs.current.push(series);
-      buffer = [];
-    };
-
-    for (let i = 0; i < hist.length; i++) {
-      const p = hist[i];
-      const above = p.value >= open;
-      const color = above ? "green" : "red";
-
-      if (color !== currentColor) {
-        pushSegment();
-        currentColor = color;
-      }
-
-      buffer.push({ time: p.time, value: p.value });
+      seriesRefs.current.push(s);
+      return s;
     }
 
-    pushSegment();
+    // Build segments
+    let segment: LineData[] = [];
+    let currentColor = hist[0].value >= open ? green : red;
+    let series = createLine(currentColor);
+
+    for (let i = 0; i < hist.length - 1; i++) {
+      const a = hist[i];
+      const b = hist[i + 1];
+      const aAbove = a.value >= open;
+      const bAbove = b.value >= open;
+
+      if (aAbove === bAbove) {
+        segment.push({ time: a.time, value: a.value });
+      } else {
+        // crossing
+        const t =
+          (open - a.value) / (b.value - a.value);
+        const crossTime = a.time + t * (b.time - a.time);
+
+        segment.push({ time: a.time, value: a.value });
+        segment.push({ time: crossTime, value: open });
+
+        series.setData(segment);
+        segment = [];
+        currentColor = currentColor === green ? red : green;
+        series = createLine(currentColor);
+        segment.push({ time: crossTime, value: open });
+      }
+    }
+
+    segment.push(hist[hist.length - 1]);
+    series.setData(segment);
 
     chart.timeScale().fitContent();
-    // ------------------------------------------------------------
+
+    // -----------------------------------------
+    // BADGES
+    // -----------------------------------------
+    let openBadge = openBadgeRef.current;
+    let currentBadge = currentBadgeRef.current;
+
+    if (!openBadge) {
+      openBadge = createBadge("#6b7280");
+      openBadgeRef.current = openBadge;
+      container.appendChild(openBadge);
+    }
+    if (!currentBadge) {
+      currentBadge = createBadge("#000");
+      currentBadgeRef.current = currentBadge;
+      container.appendChild(currentBadge);
+    }
+
+    // Position + values
+    openBadge.textContent = open.toLocaleString(undefined, { maximumFractionDigits: 8 });
+    openBadge.style.left = "12px";
+    openBadge.style.top = "12px";
+    openBadge.style.opacity = "1";
+
+    const last = hist[hist.length - 1].value;
+    const isUp = last >= open;
+    currentBadge.style.background = isUp ? green : red;
+    currentBadge.textContent = last.toLocaleString(undefined, { maximumFractionDigits: 8 });
+    currentBadge.style.right = "12px";
+    currentBadge.style.top = "12px";
+    currentBadge.style.opacity = "1";
+
+    // -----------------------------------------
     // TOOLTIP
-    // ------------------------------------------------------------
+    // -----------------------------------------
     let tooltip = tooltipRef.current;
     if (!tooltip) {
-      tooltip = document.createElement("div");
+      tooltip = createTooltipElement();
       tooltipRef.current = tooltip;
-      tooltip.style.position = "absolute";
-      tooltip.style.pointerEvents = "none";
-      tooltip.style.visibility = "hidden";
-      tooltip.style.background = "rgba(255,255,255,0.98)";
-      tooltip.style.padding = "10px 14px";
-      tooltip.style.borderRadius = "8px";
-      tooltip.style.boxShadow = "0 4px 12px rgba(0,0,0,0.12)";
-      tooltip.style.fontSize = "13px";
-      tooltip.style.transition =
-        "opacity 0.12s ease, transform 0.12s ease";
       container.appendChild(tooltip);
     }
 
-    // ----------------------------------------
-    // OPEN PRICE BADGE (LEFT)
-    // ----------------------------------------
-    const badge = document.createElement("div");
-    badge.style.position = "absolute";
-    badge.style.left = "12px";
-    badge.style.top = "12px";
-    badge.style.padding = "6px 10px";
-    badge.style.borderRadius = "8px";
-    badge.style.color = "#fff";
-    badge.style.fontWeight = "600";
-    badge.style.background = "#444";
-    badge.style.fontSize = "14px";
-    badge.innerText =
-      open >= 1000 ? (open / 1000).toFixed(2) + "K" : open.toFixed(2);
-
-    container.appendChild(badge);
-
-    // ------------------------------------------------------------
-    // HOVER LOGIC
-    // ------------------------------------------------------------
-    chart.subscribeCrosshairMove((param) => {
-      if (!param.point || !param.time) {
-        tooltip!.style.visibility = "hidden";
+    chart.subscribeCrosshairMove(param => {
+      const price = param.seriesData?.get(seriesRefs.current[0]);
+      if (!param.time || price === undefined || !param.point) {
+        tooltip.style.visibility = "hidden";
+        tooltip.style.opacity = "0";
         return;
       }
 
-      // Correct timestamp handling
-      let ts: Date;
-      if (typeof param.time === "object" && "year" in param.time) {
-        const t = param.time as any;
-        ts = new Date(t.year, t.month - 1, t.day);
-      } else {
-        const raw = Number(param.time);
-        const ms = raw < 2_000_000_000 ? raw * 1000 : raw;
-        ts = new Date(ms);
-      }
+      const ts = new Date(Number(param.time) * 1000);
 
       const dateStr = ts.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "2-digit",
-      });
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+});
 
-      const timeStr = ts.toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      });
+// Fix Safari inserting comma (e.g., "Dec 11, 2025")
+const cleanedDate = dateStr.replace(",", "");
 
-      // Determine hover color (match the segment)
-      let hoverColor = "#16c784";
-      for (const s of segmentSeriesRefs.current) {
-        const opt = s.options();
-        hoverColor = opt.color as string;
-      }
+const timeStr = ts.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+});
 
-      // Extract price
-      const price = (param as any).seriesPrices?.get(
-        segmentSeriesRefs.current[0]
-      );
+// Format price like CMC (removes scientific notation + auto trims zeros)
+const formattedPrice = Number(price).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 8,
+});
 
-      tooltip!.innerHTML = `
-        <div style="font-size:12px; opacity:0.75;">${dateStr} — ${timeStr}</div>
-        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
-          <div style="
-            width:10px; height:10px;
-            background:${hoverColor};
-            border-radius:50%;
-          "></div>
-          <div style="font-size:15px; font-weight:600;">
-            ${price?.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-          </div>
-        </div>
-      `;
+
+tooltip.innerHTML = `
+  <div style="font-size:12px; opacity:.8; margin-bottom:6px;">
+    ${cleanedDate} — ${timeStr}
+  </div>
+  <div style="font-size:15px; font-weight:600;">
+    ${formattedPrice}
+  </div>
+`;
+
 
       const { x, y } = param.point;
-      const w = tooltip!.clientWidth;
-      const h = tooltip!.clientHeight;
-      tooltip!.style.left = `${Math.min(Math.max(x - w / 2, 0), container.clientWidth - w)}px`;
-      tooltip!.style.top = `${y - h - 16}px`;
-      tooltip!.style.visibility = "visible";
+      const w = tooltip.clientWidth;
+      const h = tooltip.clientHeight;
+      tooltip.style.left = `${Math.min(Math.max(x - w / 2, 0), container.clientWidth - w)}px`;
+      tooltip.style.top = `${y - h - 16}px`;
+      tooltip.style.visibility = "visible";
+      tooltip.style.opacity = "1";
     });
 
     // Resize
     window.addEventListener("resize", () => {
       chart.resize(container.clientWidth, 390);
     });
+
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
-  // Rebuild chart when inputs change
+
+  // Build on load/change
   useEffect(() => {
+    if (!fromCoin || !toCoin) return;
     const c = chartContainerRef.current;
     if (!c) return;
-    requestAnimationFrame(() => buildChart());
-  }, [buildChart, fromCoin, toCoin, range]);
+    requestAnimationFrame(() => requestAnimationFrame(build));
+  }, [fromCoin, toCoin, range, build]);
 
   // ------------------------------------------------------------
-  // DROPDOWN ITEM
+  // OPTIONAL THEME LOGIC
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const handler = () => {
+      if (!chartRef.current) return;
+      const isDark = document.documentElement.classList.contains("dark");
+      chartRef.current.applyOptions({
+        layout: {
+          background: { color: "transparent" },
+          textColor: isDark ? "#e5e7eb" : "#374151",
+        },
+      });
+    };
+    window.addEventListener("theme-change", handler);
+    return () => window.removeEventListener("theme-change", handler);
+  }, []);
+
+  // ------------------------------------------------------------
+  // RENDER UI (unchanged)
   // ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
       const disabled =
         (type === "from" && coin.id === toCoin?.id) ||
         (type === "to" && coin.id === fromCoin?.id);
-
       const selected =
         (type === "from" && coin.id === fromCoin?.id) ||
         (type === "to" && coin.id === toCoin?.id);
 
+      let cls = "dropdown-row";
+      if (selected) cls += " dropdown-selected";
+      if (disabled) cls += " dropdown-disabled";
+
       return (
         <div
           key={coin.id}
-          className={`dropdown-row${selected ? " dropdown-selected" : ""}${disabled ? " dropdown-disabled" : ""}`}
+          className={cls}
           onClick={() => {
             if (disabled) return;
             type === "from" ? setFromCoin(coin) : setToCoin(coin);
@@ -508,7 +533,6 @@ export default function Page() {
     (type: "from" | "to") => {
       const search = type === "from" ? fromSearch : toSearch;
       const setSearch = type === "from" ? setFromSearch : setToSearch;
-
       return (
         <div className="dropdown-panel">
           <input
@@ -524,9 +548,6 @@ export default function Page() {
     [filteredCoins, fromSearch, toSearch, renderRow]
   );
 
-  // ------------------------------------------------------------
-  // RANGE BUTTONS
-  // ------------------------------------------------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
     return (
@@ -552,12 +573,9 @@ export default function Page() {
       </div>
     );
   };
-  // ------------------------------------------------------------
-  // RESULT DISPLAY
-  // ------------------------------------------------------------
+
   const renderResult = () => {
     if (!result || !fromCoin || !toCoin) return null;
-
     const baseRate = result / Number(amount);
 
     return (
@@ -577,25 +595,20 @@ export default function Page() {
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} ={" "}
-          {(1 / baseRate).toLocaleString(undefined, {
-            maximumFractionDigits: 8,
-          })}{" "}
+          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}{" "}
           {fromCoin.symbol}
         </div>
       </div>
     );
   };
 
-  // ------------------------------------------------------------
-  // MAIN UI
-  // ------------------------------------------------------------
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
       <div style={{ textAlign: "right", marginBottom: "10px" }}>
         <ThemeToggle />
       </div>
 
-      {/* TOP ROW: Amount / From / Swap / To */}
+      {/* TOP ROW */}
       <div
         style={{
           display: "flex",
