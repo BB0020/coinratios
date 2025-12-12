@@ -212,7 +212,7 @@ export default function Page() {
   }, [getHistory]);
 
   // ------------------------------------------------------------
-  // CHART BUILDER
+  // CHART BUILDER (KNOWN GOOD — BASELINE)
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
 
@@ -222,7 +222,7 @@ export default function Page() {
     const container = chartContainerRef.current;
     if (!container) return;
 
-    // 🔥 CRITICAL: wait until container has layout
+    // Ensure container has layout
     if (container.clientWidth === 0) {
       requestAnimationFrame(build);
       return;
@@ -236,34 +236,37 @@ export default function Page() {
 
     if (latestBuildId.current !== buildId) return;
 
-    // ============================================================
-    // CLEAN UP PREVIOUS CHART (STRICT-MODE SAFE)
-    // ============================================================
+    // ------------------------------------------------------------
+    // CLEAN UP PREVIOUS CHART
+    // ------------------------------------------------------------
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
       seriesRef.current = null;
     }
-    // ============================================================
 
     const isDark = document.documentElement.classList.contains("dark");
 
-    // ============================================================
-    // COINGECKO-STYLE CHART (STABLE BASE)
-    // ============================================================
+    // ------------------------------------------------------------
+    // CREATE CHART (STABLE DEFAULTS)
+    // ------------------------------------------------------------
     const chart = createChart(container, {
       width: container.clientWidth,
       height: 390,
 
       layout: {
-        background: { color: "transparent" },
-        textColor: isDark ? "#cbd5e1" : "#475569",
+        background: { color: isDark ? "#111" : "#fff" },
+        textColor: isDark ? "#eee" : "#111",
+      },
+
+      grid: {
+        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
       },
 
       rightPriceScale: {
         visible: true,
         borderVisible: false,
-        scaleMargins: { top: 0.15, bottom: 0.15 },
       },
 
       leftPriceScale: {
@@ -274,57 +277,27 @@ export default function Page() {
         borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 10,
-        barSpacing: 6,
-        fixLeftEdge: true,
-        fixRightEdge: false,
-      },
-
-      grid: {
-        vertLines: { visible: false },
-        horzLines: {
-          color: isDark ? "#1f2937" : "#eef2f7",
-        },
-      },
-
-      crosshair: {
-        mode: 2, // magnet
-        vertLine: {
-          visible: true,
-          labelVisible: false,
-          width: 1,
-          style: 2,
-          color: isDark ? "#94a3b8" : "#cbd5e1",
-        },
-        horzLine: {
-          visible: true,
-          labelVisible: true,
-          width: 1,
-          style: 0,
-          color: isDark ? "#94a3b8" : "#cbd5e1",
-        },
       },
     });
-    // ============================================================
 
+    // ------------------------------------------------------------
+    // AREA SERIES (YOUR COLORS)
+    // ------------------------------------------------------------
     const series = chart.addAreaSeries({
       lineWidth: 2,
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
       topColor: isDark
         ? "rgba(78,161,247,0.35)"
         : "rgba(59,130,246,0.35)",
-      bottomColor: "rgba(59,130,246,0.02)",
-
-      lastValueVisible: true,
-      priceLineVisible: false,
+      bottomColor: "rgba(0,0,0,0)",
     });
 
     chartRef.current = chart;
     seriesRef.current = series;
 
-    // ============================================================
-    // SET DATA (FIXED TIMESTAMP TYPE)
-    // ============================================================
+    // ------------------------------------------------------------
+    // SET DATA
+    // ------------------------------------------------------------
     if (hist.length > 0) {
       series.setData(
         hist.map((p: HistoryPoint) => ({
@@ -332,17 +305,14 @@ export default function Page() {
           value: p.value,
         }))
       );
-
       chart.timeScale().fitContent();
-      chart.timeScale().scrollToRealTime();
     } else {
       series.setData([]);
     }
-    // ============================================================
 
-    // ============================================================
+    // ------------------------------------------------------------
     // RESIZE HANDLER
-    // ============================================================
+    // ------------------------------------------------------------
     const handleResize = () => {
       if (!chartRef.current) return;
       chartRef.current.resize(container.clientWidth, 390);
@@ -350,6 +320,7 @@ export default function Page() {
 
     window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
+
 
 
 
