@@ -232,25 +232,15 @@ export default function Page() {
     if (latestBuildId.current !== buildId) return;
 
     // ============================================================
-    // CLEAN UP PREVIOUS CHART + TOOLTIP + LISTENERS
+    // CLEAN UP PREVIOUS CHART (STRICT-MODE SAFE)
     // ============================================================
     if (chartRef.current) {
-      const existingTooltip = document.querySelector(".cg-tooltip");
-      if (existingTooltip) existingTooltip.remove();
-
-      if (mouseMoveHandlerRef.current) {
-        container.removeEventListener(
-          "mousemove",
-          mouseMoveHandlerRef.current
-        );
-        mouseMoveHandlerRef.current = null;
-      }
-
       chartRef.current.remove();
       chartRef.current = null;
       seriesRef.current = null;
     }
     // ============================================================
+
 
     const isDark = document.documentElement.classList.contains("dark");
 
