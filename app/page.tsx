@@ -316,7 +316,7 @@ export default function Page() {
     const series = chart.addAreaSeries({
       lineWidth: 2,
 
-      // KEEP YOUR COLORS
+      // your existing colors
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
       topColor: isDark
         ? "rgba(78,161,247,0.35)"
@@ -326,14 +326,13 @@ export default function Page() {
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
 
-      // 🔵 COINGECKO LAST PRICE
-      //lastValueVisible: true,
-      //priceLineVisible: true,
-      //priceLineWidth: 1,
-      //priceLineStyle: 2, // dashed
-      //priceLineColor: isDark ? "#60a5fa" : "#3b82f6",
+      // ============================================================
+      // COINGECKO-STYLE RIGHT PRICE (NO LINE)
+      // ============================================================
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
-    // ============================================================
+
 
     chartRef.current = chart;
     seriesRef.current = series;
@@ -716,8 +715,13 @@ export default function Page() {
           borderRadius: "14px",
           border: "1px solid var(--card-border)",
           background: "var(--card-bg)",
+
+          // 🔥 REQUIRED FOR TOOLTIP
+          position: "relative",
+          overflow: "visible",
         }}
       />
+
     </div>
   );
 }
