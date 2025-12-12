@@ -278,17 +278,28 @@ const build = useCallback(async () => {
     },
 
     crosshair: {
-      mode: 1,
+      mode: 1, // normal (CoinGecko-style)
+
       vertLine: {
+        visible: true,
+        labelVisible: false,
         width: 1,
         style: 2,
-        color: isDark
-          ? "rgba(255,255,255,0.35)"
-          : "rgba(0,0,0,0.35)",
-        labelVisible: false,
+        color: isDark ? "#94a3b8" : "#cbd5e1",
       },
-      horzLine: { visible: false },
+
+      horzLine: {
+        visible: true,
+
+        // ❌ THIS is the black box you see
+        labelVisible: false,
+
+        width: 1,
+        style: 0,
+        color: isDark ? "#94a3b8" : "#cbd5e1",
+      },
     },
+
   });
 
   const series = chart.addAreaSeries({
