@@ -231,10 +231,20 @@ export default function Page() {
     if (latestBuildId.current !== buildId) return;
 
     if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
+    // ============================================================
+    // CLEAN UP COINGECKO TOOLTIP (ATTACHED TO BODY)
+    // ============================================================
+    const existingTooltip = document.querySelector(".cg-tooltip");
+    if (existingTooltip) {
+      existingTooltip.remove();
     }
+    // ============================================================
+
+    chartRef.current.remove();
+    chartRef.current = null;
+    seriesRef.current = null;
+  }
+
 
     const isDark = document.documentElement.classList.contains("dark");
 
@@ -341,65 +351,61 @@ export default function Page() {
     // COINGECKO-STYLE FLOATING TOOLTIP
     // ============================================================
 
+    // ============================================================
+    // COINGECKO TOOLTIP (ATTACHED TO BODY — REQUIRED)
+    // ============================================================
+
     const tooltip = document.createElement("div");
     tooltip.className = "cg-tooltip";
-    container.appendChild(tooltip);
+    document.body.appendChild(tooltip);
+    // ============================================================
+
 
     chart.subscribeCrosshairMove((param: any) => {
-    // ============================================================
-    // COINGECKO HOVER TOOLTIP (VISIBLE + LOCAL TIME + NO SECONDS)
-    // ============================================================
+  if (!param || !param.time || !param.seriesPrices || !param.point) {
+    tooltip.style.display = "none";
+    return;
+  }
 
-    if (!param || !param.time || !param.seriesPrices) {
-      tooltip.style.display = "none";
-      return;
-    }
+  const price = param.seriesPrices.get(series);
+  if (price === undefined) {
+    tooltip.style.display = "none";
+    return;
+  }
 
-    const price = param.seriesPrices.get(series);
-    if (price === undefined) {
-      tooltip.style.display = "none";
-      return;
-    }
-
-    // --- Local time, no seconds (CG-style)
-    const date = new Date((param.time as number) * 1000);
-    const formattedTime = date.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
-    tooltip.innerHTML = `
-      <div class="cg-tooltip-date">${formattedTime}</div>
-      <div class="cg-tooltip-price">
-        Price: <strong>$${Number(price).toLocaleString()}</strong>
-      </div>
-    `;
-
-    tooltip.style.display = "block";
-
-    // --- Position ABOVE cursor and clamp inside chart (CRITICAL)
-    const point = param.point;
-    if (!point) return;
-
-    const OFFSET_X = 12;
-    const OFFSET_Y = 14;
-
-    let left = point.x + OFFSET_X;
-    let top = point.y - tooltip.offsetHeight - OFFSET_Y;
-
-    const maxLeft = container.clientWidth - tooltip.offsetWidth - 8;
-    const minTop = 8;
-
-    left = Math.min(left, maxLeft);
-    top = Math.max(top, minTop);
-
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
+  // --- Local time, NO seconds
+  const date = new Date((param.time as number) * 1000);
+  const formattedTime = date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
+
+  tooltip.innerHTML = `
+    <div class="cg-tooltip-date">${formattedTime}</div>
+    <div class="cg-tooltip-price">
+      Price: <strong>$${Number(price).toLocaleString()}</strong>
+    </div>
+  `;
+
+  tooltip.style.display = "block";
+
+  // --- Position ABOVE cursor (CG-style)
+  const rect = container.getBoundingClientRect();
+
+  const x = rect.left + param.point.x;
+  const y = rect.top + param.point.y;
+
+  const OFFSET_X = 12;
+  const OFFSET_Y = 14;
+
+  tooltip.style.left = `${x + OFFSET_X}px`;
+  tooltip.style.top = `${y - tooltip.offsetHeight - OFFSET_Y}px`;
+});
+
 
 
     if (hist.length > 0) {
