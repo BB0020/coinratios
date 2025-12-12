@@ -238,27 +238,125 @@ export default function Page() {
 
     const isDark = document.documentElement.classList.contains("dark");
 
+    // ============================================================
+    // COINGECKO-STYLE CHART (LAYOUT + BEHAVIOR MATCH)
+    // ============================================================
+
     const chart = createChart(container, {
       width: container.clientWidth,
       height: 390,
+
       layout: {
-        background: { color: isDark ? "#111" : "#fff" },
-        textColor: isDark ? "#eee" : "#111",
+        background: { color: "transparent" },
+        textColor: isDark ? "#cbd5e1" : "#475569",
       },
+
+      rightPriceScale: {
+        visible: true,
+        borderVisible: false,
+        scaleMargins: {
+          top: 0.15,
+          bottom: 0.15,
+        },
+      },
+
+      leftPriceScale: {
+        visible: false,
+      },
+
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 12,
+        barSpacing: 6,
+        fixLeftEdge: true,
+        fixRightEdge: false,
+      },
+
       grid: {
-        vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
-        horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+        vertLines: { visible: false },
+        horzLines: {
+          color: isDark ? "#1f2937" : "#eef2f7",
+        },
+      },
+
+      crosshair: {
+        mode: 1,
+        vertLine: {
+          visible: true,
+          labelVisible: false,
+          width: 1,
+          style: 2, // dashed
+          color: isDark ? "#374151" : "#cbd5e1",
+        },
+        horzLine: {
+          visible: true,
+          labelVisible: true,
+          width: 1,
+          color: isDark ? "#374151" : "#cbd5e1",
+        },
       },
     });
 
     const series = chart.addAreaSeries({
+      lineWidth: 2,
+
+      // KEEP YOUR COLORS
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
-      bottomColor: "rgba(0,0,0,0)",
+      topColor: isDark
+        ? "rgba(78,161,247,0.35)"
+        : "rgba(59,130,246,0.35)",
+      bottomColor: "rgba(59,130,246,0.02)",
+
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
     });
+
+    // ============================================================
+
 
     chartRef.current = chart;
     seriesRef.current = series;
+
+    // ============================================================
+    // COINGECKO-STYLE FLOATING TOOLTIP
+    // ============================================================
+
+    const tooltip = document.createElement("div");
+    tooltip.className = "cg-tooltip";
+    container.appendChild(tooltip);
+
+    chart.subscribeCrosshairMove((param: any) => {
+      if (
+        !param ||
+        !param.time ||
+        !param.seriesPrices ||
+        !param.seriesPrices.get(series)
+      ) {
+        tooltip.style.display = "none";
+        return;
+      }
+
+      const price = param.seriesPrices.get(series);
+      const time = new Date((param.time as number) * 1000);
+
+      tooltip.innerHTML = `
+        <div class="cg-tooltip-date">
+          ${time.toLocaleString()}
+        </div>
+        <div class="cg-tooltip-price">
+          Price: <strong>$${Number(price).toLocaleString()}</strong>
+        </div>
+      `;
+
+      const { x, y } = param.point;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${x + 15}px`;
+      tooltip.style.top = `${y + 15}px`;
+    });
+
+    // ============================================================
 
     if (hist.length > 0) {
       series.setData(
@@ -267,7 +365,13 @@ export default function Page() {
           value: p.value,
         }))
       );
+      // ============================================================
+      // COINGECKO TIME-ANCHOR BEHAVIOR
+      // ============================================================
       chart.timeScale().fitContent();
+      chart.timeScale().scrollToRealTime();
+      // ============================================================
+
     } else {
       series.setData([]);
     }
