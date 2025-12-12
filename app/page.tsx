@@ -284,6 +284,33 @@ export default function Page() {
         fixRightEdge: false,
       },
 
+      // ============================================================
+      // LOCAL TIME AXIS (MATCH COINGECKO)
+      // ============================================================
+      localization: {
+        timeFormatter: (timestamp: number) => {
+          const d = new Date(timestamp * 1000);
+
+          // If midnight, show date only (CG-style)
+          if (d.getHours() === 0 && d.getMinutes() === 0) {
+            return d.toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            });
+          }
+
+          // Otherwise show date + time (no seconds)
+          return d.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+        },
+      },
+      // ============================================================
+
       grid: {
         vertLines: { visible: false },
         horzLines: {
@@ -291,18 +318,17 @@ export default function Page() {
         },
       },
 
-      
       // ============================================================
       // COINGECKO CROSSHAIR (HOVER SNAP ENABLED)
       // ============================================================
       crosshair: {
-        mode: 2, // 🔒 MAGNET MODE (snap to nearest point)
+        mode: 2, // magnet / snap to point
 
         vertLine: {
           visible: true,
           labelVisible: false,
           width: 1,
-          style: 2,
+          style: 2, // dashed (CG)
           color: isDark ? "#94a3b8" : "#cbd5e1",
         },
 
@@ -310,15 +336,13 @@ export default function Page() {
           visible: true,
           labelVisible: true, // price shows only on hover
           width: 1,
-          style: 2,
+          style: 0, // solid (CG)
           color: isDark ? "#94a3b8" : "#cbd5e1",
         },
       },
       // ============================================================
-
-
-
     });
+
 
     // ============================================================
     // COINGECKO AREA SERIES (COMMENTED OUT LAST PRICE)
