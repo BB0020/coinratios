@@ -215,6 +215,7 @@ export default function Page() {
   // CHART BUILDER
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
+  const mouseMoveHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
 
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
@@ -237,7 +238,13 @@ export default function Page() {
       const existingTooltip = document.querySelector(".cg-tooltip");
       if (existingTooltip) existingTooltip.remove();
 
-      container.onmousemove = null;
+      if (mouseMoveHandlerRef.current) {
+        container.removeEventListener(
+          "mousemove",
+          mouseMoveHandlerRef.current
+        );
+        mouseMoveHandlerRef.current = null;
+      }
 
       chartRef.current.remove();
       chartRef.current = null;
@@ -285,7 +292,7 @@ export default function Page() {
       },
 
       crosshair: {
-        mode: 2, // magnet
+        mode: 2,
         vertLine: {
           visible: true,
           labelVisible: false,
@@ -320,16 +327,19 @@ export default function Page() {
     seriesRef.current = series;
 
     // ============================================================
-    // TRACK MOUSE POSITION (SINGLE LISTENER)
+    // TRACK MOUSE POSITION (SAFE — LC v4)
     // ============================================================
     let lastMouseX = 0;
     let lastMouseY = 0;
 
-    container.onmousemove = (e) => {
+    const mouseMoveHandler = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
       lastMouseX = e.clientX - rect.left;
       lastMouseY = e.clientY - rect.top;
     };
+
+    mouseMoveHandlerRef.current = mouseMoveHandler;
+    container.addEventListener("mousemove", mouseMoveHandler);
     // ============================================================
 
     // ============================================================
@@ -389,12 +399,13 @@ export default function Page() {
       series.setData([]);
     }
 
-
     const handleResize = () => {
       chart.resize(container.clientWidth, 390);
     };
     window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
+
+
 
 
   // ------------------------------------------------------------
