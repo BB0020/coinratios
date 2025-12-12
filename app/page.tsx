@@ -281,24 +281,38 @@ export default function Page() {
         },
       },
 
+      
+      // ============================================================
+      // COINGECKO CROSSHAIR (HOVER SNAP ENABLED)
+      // ============================================================
       crosshair: {
-        mode: 1,
+        mode: 2, // 🔒 MAGNET MODE (snap to nearest point)
+
         vertLine: {
           visible: true,
           labelVisible: false,
           width: 1,
-          style: 2, // dashed
-          color: isDark ? "#374151" : "#cbd5e1",
+          style: 2,
+          color: isDark ? "#94a3b8" : "#cbd5e1",
         },
+
         horzLine: {
           visible: true,
-          labelVisible: true,
+          labelVisible: true, // price shows only on hover
           width: 1,
-          color: isDark ? "#374151" : "#cbd5e1",
+          style: 2,
+          color: isDark ? "#94a3b8" : "#cbd5e1",
         },
       },
+      // ============================================================
+
+
+
     });
 
+    // ============================================================
+    // COINGECKO AREA SERIES (COMMENTED OUT LAST PRICE)
+    // ============================================================
     const series = chart.addAreaSeries({
       lineWidth: 2,
 
@@ -311,10 +325,15 @@ export default function Page() {
 
       crosshairMarkerVisible: true,
       crosshairMarkerRadius: 4,
+
+      // 🔵 COINGECKO LAST PRICE
+      //lastValueVisible: true,
+      //priceLineVisible: true,
+      //priceLineWidth: 1,
+      //priceLineStyle: 2, // dashed
+      //priceLineColor: isDark ? "#60a5fa" : "#3b82f6",
     });
-
     // ============================================================
-
 
     chartRef.current = chart;
     seriesRef.current = series;
@@ -341,6 +360,9 @@ export default function Page() {
       const price = param.seriesPrices.get(series);
       const time = new Date((param.time as number) * 1000);
 
+      // ============================================================
+      // COINGECKO TOOLTIP (DATE + PRICE)
+      // ============================================================
       tooltip.innerHTML = `
         <div class="cg-tooltip-date">
           ${time.toLocaleString()}
@@ -349,6 +371,9 @@ export default function Page() {
           Price: <strong>$${Number(price).toLocaleString()}</strong>
         </div>
       `;
+      // ============================================================
+
+
 
       const { x, y } = param.point;
       tooltip.style.display = "block";
