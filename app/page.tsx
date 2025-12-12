@@ -211,29 +211,23 @@ export default function Page() {
     }));
   }, [getHistory]);
 
-  /// ------------------------------------------------------------
-// CHART BUILDER (LOCAL TIME SAFE + TOOLTIP COMPATIBLE)
+  // ------------------------------------------------------------
+// CHART BUILDER + EFFECT + TOOLTIP (SINGLE SAFE BLOCK)
 // ------------------------------------------------------------
-const latestBuildId = useRef<symbol | null>(null);
-
 const build = useCallback(async () => {
   if (!fromCoin || !toCoin) return;
-
-  const buildId = Symbol();
-  latestBuildId.current = buildId;
 
   const container = chartContainerRef.current;
   if (!container) return;
 
-  const days = rangeToDays(range);
-  const hist = await getNormalizedHistory(fromCoin, toCoin, days);
+  const hist = await getNormalizedHistory(
+    fromCoin,
+    toCoin,
+    rangeToDays(range)
+  );
   if (!hist.length) return;
 
-  if (latestBuildId.current !== buildId) return;
-
-  // ------------------------------------------------------------
-  // CLEAN UP PREVIOUS CHART ONLY
-  // ------------------------------------------------------------
+  // Remove previous chart
   if (chartRef.current) {
     chartRef.current.remove();
     chartRef.current = null;
@@ -242,9 +236,6 @@ const build = useCallback(async () => {
 
   const isDark = document.documentElement.classList.contains("dark");
 
-  // ------------------------------------------------------------
-  // CREATE CHART
-  // ------------------------------------------------------------
   const chart = createChart(container, {
     width: container.clientWidth,
     height: 390,
@@ -268,6 +259,22 @@ const build = useCallback(async () => {
       borderVisible: false,
       timeVisible: true,
       secondsVisible: false,
+      tickMarkFormatter: (time: UTCTimestamp) => {
+        const d = new Date(time * 1000);
+
+        if (range === "24H") {
+          return d.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+        }
+
+        return d.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        });
+      },
     },
 
     crosshair: {
@@ -284,11 +291,6 @@ const build = useCallback(async () => {
     },
   });
 
-  chartRef.current = chart;
-
-  // ------------------------------------------------------------
-  // AREA SERIES (KEEP YOUR COLORS)
-  // ------------------------------------------------------------
   const series = chart.addAreaSeries({
     lineWidth: 3,
     lineColor: isDark ? "#4ea1f7" : "#3b82f6",
@@ -296,50 +298,27 @@ const build = useCallback(async () => {
       ? "rgba(78,161,247,0.45)"
       : "rgba(59,130,246,0.45)",
     bottomColor: "rgba(59,130,246,0.05)",
-
     lastValueVisible: true,
     priceLineVisible: false,
   });
 
+  chartRef.current = chart;
   seriesRef.current = series;
 
-  // ------------------------------------------------------------
-  // 🔥 CRITICAL FIX: UTC → LOCAL TIME CONVERSION
-  // ------------------------------------------------------------
+  // IMPORTANT: use RAW UTC timestamps
   series.setData(
     hist.map((p: HistoryPoint) => ({
-      time:
-        (p.time -
-          new Date(p.time * 1000).getTimezoneOffset() * 60) as UTCTimestamp,
+      time: p.time as UTCTimestamp,
       value: p.value,
     }))
   );
 
   chart.timeScale().fitContent();
 
-  // ------------------------------------------------------------
-  // RESIZE HANDLER
-  // ------------------------------------------------------------
-  const handleResize = () => {
-    if (!chartRef.current) return;
-    chartRef.current.resize(container.clientWidth, 390);
-  };
-
-  window.addEventListener("resize", handleResize);
-}, [fromCoin, toCoin, range, getNormalizedHistory]);
-
-// ------------------------------------------------------------
-// ⭐ TOOLTIP EFFECT (CMC / CG STYLE)
-// ------------------------------------------------------------
-useEffect(() => {
-  const container = chartContainerRef.current;
-  const chart = chartRef.current;
-  const series = seriesRef.current;
-
-  if (!container || !chart || !series) return;
-
-  // Create tooltip once
-  let tooltip = document.querySelector(".cg-tooltip") as HTMLDivElement | null;
+  // ------------------------------
+  // TOOLTIP (LOCAL TIME, ABOVE CURSOR)
+  // ------------------------------
+  let tooltip = container.querySelector(".cg-tooltip") as HTMLDivElement | null;
   if (!tooltip) {
     tooltip = document.createElement("div");
     tooltip.className = "cg-tooltip";
@@ -347,6 +326,12 @@ useEffect(() => {
     tooltip.style.pointerEvents = "none";
     tooltip.style.visibility = "hidden";
     tooltip.style.zIndex = "10";
+    tooltip.style.padding = "10px 14px";
+    tooltip.style.borderRadius = "10px";
+    tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
+    tooltip.style.color = isDark ? "#f9fafb" : "#111";
+    tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
+    tooltip.style.fontSize = "13px";
     container.appendChild(tooltip);
   }
 
@@ -362,22 +347,19 @@ useEffect(() => {
       return;
     }
 
-    // Local time (NO seconds)
     const d = new Date((param.time as number) * 1000);
-    const dateStr = d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-    const timeStr = d.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    });
 
     tooltip!.innerHTML = `
-      <div style="font-size:12px; opacity:0.75; margin-bottom:6px;">
-        ${dateStr} — ${timeStr}
+      <div style="opacity:0.75; margin-bottom:6px;">
+        ${d.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })} — ${d.toLocaleTimeString(undefined, {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        })}
       </div>
       <div style="font-size:15px; font-weight:600;">
         ${Number(price).toLocaleString(undefined, {
@@ -394,18 +376,29 @@ useEffect(() => {
       Math.max(x - w / 2, 0),
       container.clientWidth - w
     )}px`;
-
     tooltip!.style.top = `${y - h - 14}px`;
     tooltip!.style.visibility = "visible";
   };
 
   chart.subscribeCrosshairMove(handleMove);
 
-  return () => {
-    chart.unsubscribeCrosshairMove(handleMove);
-    tooltip?.remove();
+  const handleResize = () => {
+    chart.resize(container.clientWidth, 390);
   };
-}, [fromCoin, toCoin, range]);
+  window.addEventListener("resize", handleResize);
+}, [fromCoin, toCoin, range, getNormalizedHistory]);
+
+useEffect(() => {
+  if (!fromCoin || !toCoin) return;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      build();
+    });
+  });
+}, [fromCoin, toCoin, range, build]);
+
+
 
 
 
