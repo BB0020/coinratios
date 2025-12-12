@@ -4,6 +4,9 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import {
   createChart,
   type UTCTimestamp,
+  type ISeriesApi,
+  type LineData,
+  type Time,
 } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
@@ -57,7 +60,7 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
-// PAGE COMPONENT
+// PAGE COMPONENT START
 // ------------------------------------------------------------
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
@@ -74,16 +77,19 @@ export default function Page() {
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
-  const seriesRef = useRef<any>(null);
+
+  const segmentSeriesRefs = useRef<ISeriesApi<"Line">[]>([]);
+  const openLineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const areaRef = useRef<ISeriesApi<"Area"> | null>(null);
+
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
-
   // Debug exposure
   useEffect(() => {
     (window as any).chartRef = chartRef;
-    (window as any).seriesRef = seriesRef;
+    (window as any).segments = segmentSeriesRefs;
   }, []);
 
   // ------------------------------------------------------------
@@ -167,8 +173,9 @@ export default function Page() {
     r === "3M"  ? 90 :
     r === "6M"  ? 180 :
                   365;
-    // ------------------------------------------------------------
-  // RAW HISTORY (CACHED)
+
+  // ------------------------------------------------------------
+  // FETCH RAW HISTORY (CACHED)
   // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
@@ -186,7 +193,7 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
-  // ⭐ NORMALIZED HISTORY
+  // NORMALIZED HISTORY (handles fiat inversion)
   // ------------------------------------------------------------
   const getNormalizedHistory = useCallback(
     async (base: Coin, quote: Coin, days: number) => {
@@ -210,86 +217,27 @@ export default function Page() {
     },
     [getHistory]
   );
-
-  // =====================================================================================
-  // ⭐ TOOLTIP CREATION (CMC STYLE)
-  // =====================================================================================
-  function createTooltipElement(): HTMLDivElement {
-    const el = document.createElement("div");
-    el.style.position = "absolute";
-    el.style.zIndex = "9999";
-    el.style.pointerEvents = "none";
-    el.style.visibility = "hidden";
-    el.style.padding = "12px 16px";
-    el.style.borderRadius = "12px";
-    el.style.background = "rgba(255,255,255,0.98)";
-    el.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
-    el.style.fontSize = "13px";
-    el.style.fontWeight = "500";
-    el.style.color = "#111";
-    el.style.whiteSpace = "nowrap";
-    el.style.opacity = "0";
-    el.style.transform = "translateY(4px)";
-    el.style.transition =
-      "opacity 0.12s ease-out, transform 0.12s ease-out, top 0.12s ease-out";
-    return el;
-  }
-
-  // =====================================================================================
-  // ⭐ PRICE BADGE CREATION (CMC STYLE)
-  // =====================================================================================
-  function createPriceBadge(): HTMLDivElement {
-    const el = document.createElement("div");
-    el.className = "price-badge";
-    el.style.position = "absolute";
-    el.style.right = "12px";
-    el.style.top = "12px";
-    el.style.padding = "6px 12px";
-    el.style.borderRadius = "8px";
-    el.style.fontSize = "14px";
-    el.style.fontWeight = "600";
-    el.style.pointerEvents = "none";
-    el.style.color = "#fff";
-    el.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-    el.style.opacity = "0";
-    el.style.transform = "translateY(6px)";
-    el.style.transition =
-      "opacity 0.25s ease-out, transform 0.25s ease-out";
-    return el;
-  }
-
-  // =====================================================================================
-  // ⭐ CHART BUILDER — CMC STYLE (v4-compatible)
-  // =====================================================================================
-  const latestBuildId = useRef<symbol | null>(null);
-
-  const build = useCallback(async () => {
+  // ------------------------------------------------------------
+  // SEGMENTED RED/GREEN CHART BUILDER (CMC STYLE)
+  // ------------------------------------------------------------
+  const buildChart = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
-
-    const buildId = Symbol();
-    latestBuildId.current = buildId;
 
     const container = chartContainerRef.current;
     if (!container) return;
 
+    // Load history
     const days = rangeToDays(range);
     const hist = await getNormalizedHistory(fromCoin, toCoin, days);
     if (!hist.length) return;
 
-    if (latestBuildId.current !== buildId) return;
-
-    // Remove old chart
+    // Remove old
     if (chartRef.current) {
       chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
     }
 
     const isDark = document.documentElement.classList.contains("dark");
 
-    // ------------------------------------------------------------
-    // Create chart
-    // ------------------------------------------------------------
     const chart = createChart(container, {
       width: container.clientWidth,
       height: 390,
@@ -297,14 +245,8 @@ export default function Page() {
         background: { color: "transparent" },
         textColor: isDark ? "#e5e7eb" : "#374151",
       },
-      grid: {
-        vertLines: { color: "transparent" },
-        horzLines: { color: "transparent" },
-      },
-      rightPriceScale: {
-        borderVisible: false,
-        scaleMargins: { top: 0.25, bottom: 0.1 },
-      },
+      grid: { vertLines: { color: "transparent" }, horzLines: { color: "transparent" } },
+      rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.25, bottom: 0.1 } },
       timeScale: {
         borderVisible: false,
         timeVisible: true,
@@ -324,257 +266,210 @@ export default function Page() {
       },
       crosshair: {
         mode: 1,
-        vertLine: {
-          width: 1,
-          style: 2,
-          color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.25)",
-        },
+        vertLine: { width: 1, style: 2, color: isDark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.25)" },
         horzLine: { visible: false },
       },
     });
 
     chartRef.current = chart;
 
-    // ------------------------------------------------------------
-    // CMC Trend Logic
-    // ------------------------------------------------------------
-    // Smooth the “open” like CMC does (stabilizes CG data)
-      const open =
-        hist.length >= 3
-          ? (hist[0].value + hist[1].value + hist[2].value) / 3
-          : hist[0].value;
+    // ----------------------------------------
+    // Compute open price
+    // ----------------------------------------
+    const open =
+      hist.length >= 3
+        ? (hist[0].value + hist[1].value + hist[2].value) / 3
+        : hist[0].value;
 
-    const last = hist[hist.length - 1].value;
-    const rising = last > open;
+    // ----------------------------------------
+    // Neutral Area (behind segments)
+    // ----------------------------------------
+    const area = chart.addAreaSeries({
+      topColor: "rgba(120,120,120,0.05)",
+      bottomColor: "rgba(120,120,120,0.00)",
+      lineColor: "rgba(0,0,0,0)",
+      });
 
-    const lineColor = rising ? "#16c784" : "#ea3943";
-    const topColor = rising
-      ? "rgba(22,199,132,0.45)"
-      : "rgba(234,57,67,0.45)";
-    const bottomColor = rising
-      ? "rgba(22,199,132,0.05)"
-      : "rgba(234,57,67,0.05)";
+    area.setData(hist.map((p: HistoryPoint) => ({
+      time: p.time,
+      value: p.value,
+    })));
 
-    // ------------------------------------------------------------
-    // Area Series (v4-compliant price formatter)
-    // ------------------------------------------------------------
-    const series = chart.addAreaSeries({
-      lineColor,
-      lineWidth: 3,
-      topColor,
-      bottomColor,
-      priceFormat: {
-        type: "custom",
-        formatter: (p: number) => {
-          if (p >= 1_000_000_000) return (p / 1_000_000_000).toFixed(2) + "B";
-          if (p >= 1_000_000) return (p / 1_000_000).toFixed(2) + "M";
-          if (p >= 1_000) return (p / 1_000).toFixed(2) + "K";
-          return p.toFixed(2);
-        },
-      },
+    areaRef.current = area;
+
+    // ----------------------------------------
+    // Dashed Open Price Line
+    // ----------------------------------------
+    const openLine = chart.addLineSeries({
+      color: "#999",
+      lineWidth: 1,
+      lineStyle: 2,
     });
 
-    seriesRef.current = series;
+    openLine.setData(hist.map((p: HistoryPoint) => ({
+      time: p.time,
+      value: open,
+    })));
 
-    series.setData(
-      hist.map((p: HistoryPoint) => ({
-        time: p.time as UTCTimestamp,
-        value: p.value,
-      }))
-    );
+    openLineRef.current = openLine;
 
-    chart.timeScale().fitContent();
+    // ----------------------------------------
+    // Segment the history into green/red intervals
+    // ----------------------------------------
+    segmentSeriesRefs.current = [];
 
-  
-    // ------------------------------------------------------------
-    // ⭐ TOOLTIP — v4 Safe Version WITH CORRECT TIMESTAMP RESOLVER
-    // ------------------------------------------------------------
+    let currentColor: "red" | "green" =
+      hist[0].value >= open ? "green" : "red";
 
-    // Timestamp resolver that ALWAYS matches Lightweight-Charts x-axis
-    function resolveChartTime(t: any): Date {
-      // Case 1: BusinessDay object (used for daily candles)
-      if (typeof t === "object" && "year" in t) {
-        const d = new Date(t.year, t.month - 1, t.day);
-        return new Date(
-          d.getFullYear(),
-          d.getMonth(),
-          d.getDate(),
-          d.getHours(),
-          d.getMinutes(),
-          0
-        );
+    let buffer: LineData[] = [];
+
+    const pushSegment = () => {
+      if (!buffer.length) return;
+
+      const series = chart.addLineSeries({
+        color: currentColor === "green" ? "#16c784" : "#ea3943",
+        lineWidth: 3,
+      });
+
+      series.setData(buffer);
+      segmentSeriesRefs.current.push(series);
+      buffer = [];
+    };
+
+    for (let i = 0; i < hist.length; i++) {
+      const p = hist[i];
+      const above = p.value >= open;
+      const color = above ? "green" : "red";
+
+      if (color !== currentColor) {
+        pushSegment();
+        currentColor = color;
       }
 
-      // Case 2: UNIX timestamp (seconds or ms)
-      const raw = Number(t);
-      const ms = raw < 2_000_000_000 ? raw * 1000 : raw;
-
-      const d = new Date(ms);
-
-      // Force seconds to zero (no seconds in tooltip)
-      return new Date(
-        d.getFullYear(),
-        d.getMonth(),
-        d.getDate(),
-        d.getHours(),
-        d.getMinutes(),
-        0
-      );
+      buffer.push({ time: p.time, value: p.value });
     }
 
+    pushSegment();
+
+    chart.timeScale().fitContent();
+    // ------------------------------------------------------------
+    // TOOLTIP
+    // ------------------------------------------------------------
     let tooltip = tooltipRef.current;
     if (!tooltip) {
-      tooltip = createTooltipElement();
+      tooltip = document.createElement("div");
       tooltipRef.current = tooltip;
+      tooltip.style.position = "absolute";
+      tooltip.style.pointerEvents = "none";
+      tooltip.style.visibility = "hidden";
+      tooltip.style.background = "rgba(255,255,255,0.98)";
+      tooltip.style.padding = "10px 14px";
+      tooltip.style.borderRadius = "8px";
+      tooltip.style.boxShadow = "0 4px 12px rgba(0,0,0,0.12)";
+      tooltip.style.fontSize = "13px";
+      tooltip.style.transition =
+        "opacity 0.12s ease, transform 0.12s ease";
       container.appendChild(tooltip);
     }
 
-        // ------------------------------------------------------------
-        // ⭐ TOOLTIP — CMC STYLE WITH CORRECT TIMESTAMP (FIXED LOCAL TIME)
-        // ------------------------------------------------------------
-        chart.subscribeCrosshairMove((param) => {
-          const price = (param as any).seriesPrices?.get(series);
+    // ----------------------------------------
+    // OPEN PRICE BADGE (LEFT)
+    // ----------------------------------------
+    const badge = document.createElement("div");
+    badge.style.position = "absolute";
+    badge.style.left = "12px";
+    badge.style.top = "12px";
+    badge.style.padding = "6px 10px";
+    badge.style.borderRadius = "8px";
+    badge.style.color = "#fff";
+    badge.style.fontWeight = "600";
+    badge.style.background = "#444";
+    badge.style.fontSize = "14px";
+    badge.innerText =
+      open >= 1000 ? (open / 1000).toFixed(2) + "K" : open.toFixed(2);
 
-          if (!param.time || !param.point || price === undefined) {
-            tooltip.style.visibility = "hidden";
-            tooltip.style.opacity = "0";
-            return;
-          }
-
-          // ------------------------------------------------------------
-          // ALWAYS MATCH X-AXIS TIME — LIGHTWEIGHT CHARTS USES UTC SECONDS
-          // ------------------------------------------------------------
-          let ts: Date;
-
-          if (typeof param.time === "object" && "year" in param.time) {
-            // Daily resolution (business day structure)
-            const t: any = param.time;
-            ts = new Date(t.year, t.month - 1, t.day);  // Local midnight
-          } else {
-            // UNIX seconds → convert to local time
-            const unixSeconds = Number(param.time);
-
-            // Lightweight-charts stores UTC timestamps
-            ts = new Date(unixSeconds * 1000);
-          }
-
-          // ------------------------------------------------------------
-          // Format date
-          // ------------------------------------------------------------
-          const dateStr = ts.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "2-digit",
-          });
-
-          // Format time — NO seconds
-          const timeStr = ts.toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          });
-
-          // ------------------------------------------------------------
-          // Tooltip HTML
-          // ------------------------------------------------------------
-          tooltip.innerHTML = `
-            <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
-              ${dateStr} — ${timeStr}
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div style="
-                width:10px; height:10px; border-radius:50%;
-                background:${lineColor};
-              "></div>
-              <div style="font-size:15px; font-weight:600;">
-                ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-              </div>
-            </div>
-          `;
-
-          // ------------------------------------------------------------
-          // Tooltip positioning
-          // ------------------------------------------------------------
-          const { x, y } = param.point;
-          const w = tooltip.clientWidth;
-          const h = tooltip.clientHeight;
-
-          const left = Math.min(Math.max(x - w / 2, 0), container.clientWidth - w);
-          const top = y - h - 16;
-
-          tooltip.style.left = `${left}px`;
-          tooltip.style.top = `${top}px`;
-          tooltip.style.visibility = "visible";
-
-          requestAnimationFrame(() => {
-            tooltip.style.opacity = "1";
-            tooltip.style.transform = "translateY(0px)";
-          });
-        });
-    // ------------------------------------------------------------
-    // end tooltip block
-    // ------------------------------------------------------------
-
-
-
+    container.appendChild(badge);
 
     // ------------------------------------------------------------
-    // Resize handler
+    // HOVER LOGIC
     // ------------------------------------------------------------
-    const handleResize = () => {
-      if (!chartRef.current) return;
-      chartRef.current.resize(container.clientWidth, 390);
-    };
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || !param.time) {
+        tooltip!.style.visibility = "hidden";
+        return;
+      }
 
-    window.addEventListener("resize", handleResize);
-  }, [fromCoin, toCoin, range, getNormalizedHistory]);
+      // Correct timestamp handling
+      let ts: Date;
+      if (typeof param.time === "object" && "year" in param.time) {
+        const t = param.time as any;
+        ts = new Date(t.year, t.month - 1, t.day);
+      } else {
+        const raw = Number(param.time);
+        const ms = raw < 2_000_000_000 ? raw * 1000 : raw;
+        ts = new Date(ms);
+      }
 
-  // ------------------------------------------------------------
-  // BUILD ON LOAD / CHANGE
-  // ------------------------------------------------------------
-  useEffect(() => {
-    if (!fromCoin || !toCoin) return;
-    const container = chartContainerRef.current;
-    if (!container) return;
-
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        build();
+      const dateStr = ts.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "2-digit",
       });
+
+      const timeStr = ts.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+
+      // Determine hover color (match the segment)
+      let hoverColor = "#16c784";
+      for (const s of segmentSeriesRefs.current) {
+        const opt = s.options();
+        hoverColor = opt.color as string;
+      }
+
+      // Extract price
+      const price = (param as any).seriesPrices?.get(
+        segmentSeriesRefs.current[0]
+      );
+
+      tooltip!.innerHTML = `
+        <div style="font-size:12px; opacity:0.75;">${dateStr} — ${timeStr}</div>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+          <div style="
+            width:10px; height:10px;
+            background:${hoverColor};
+            border-radius:50%;
+          "></div>
+          <div style="font-size:15px; font-weight:600;">
+            ${price?.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          </div>
+        </div>
+      `;
+
+      const { x, y } = param.point;
+      const w = tooltip!.clientWidth;
+      const h = tooltip!.clientHeight;
+      tooltip!.style.left = `${Math.min(Math.max(x - w / 2, 0), container.clientWidth - w)}px`;
+      tooltip!.style.top = `${y - h - 16}px`;
+      tooltip!.style.visibility = "visible";
     });
-  }, [fromCoin, toCoin, range, build]);
 
-  // ------------------------------------------------------------
-  // THEME UPDATE HANDLER
-  // ------------------------------------------------------------
+    // Resize
+    window.addEventListener("resize", () => {
+      chart.resize(container.clientWidth, 390);
+    });
+  }, [fromCoin, toCoin, range, getNormalizedHistory]);
+  // Rebuild chart when inputs change
   useEffect(() => {
-    const handler = () => {
-      if (!chartRef.current || !seriesRef.current) return;
-
-      const isDark = document.documentElement.classList.contains("dark");
-
-      chartRef.current.applyOptions({
-        layout: {
-          background: { color: "transparent" },
-          textColor: isDark ? "#e5e7eb" : "#374151",
-        },
-        grid: {
-          vertLines: { color: "transparent" },
-          horzLines: { color: "transparent" },
-        },
-      });
-
-      seriesRef.current.applyOptions({
-        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      });
-    };
-
-    window.addEventListener("theme-change", handler);
-    return () => window.removeEventListener("theme-change", handler);
-  }, []);
+    const c = chartContainerRef.current;
+    if (!c) return;
+    requestAnimationFrame(() => buildChart());
+  }, [buildChart, fromCoin, toCoin, range]);
 
   // ------------------------------------------------------------
-  // DROPDOWN ROW
+  // DROPDOWN ITEM
   // ------------------------------------------------------------
   const renderRow = useCallback(
     (coin: Coin, type: "from" | "to") => {
@@ -586,14 +481,10 @@ export default function Page() {
         (type === "from" && coin.id === fromCoin?.id) ||
         (type === "to" && coin.id === toCoin?.id);
 
-      let cls = "dropdown-row";
-      if (selected) cls += " dropdown-selected";
-      if (disabled) cls += " dropdown-disabled";
-
       return (
         <div
           key={coin.id}
-          className={cls}
+          className={`dropdown-row${selected ? " dropdown-selected" : ""}${disabled ? " dropdown-disabled" : ""}`}
           onClick={() => {
             if (disabled) return;
             type === "from" ? setFromCoin(coin) : setToCoin(coin);
@@ -613,9 +504,6 @@ export default function Page() {
     [fromCoin, toCoin]
   );
 
-  // ------------------------------------------------------------
-  // DROPDOWN PANEL
-  // ------------------------------------------------------------
   const renderDropdown = useCallback(
     (type: "from" | "to") => {
       const search = type === "from" ? fromSearch : toSearch;
@@ -637,11 +525,10 @@ export default function Page() {
   );
 
   // ------------------------------------------------------------
-  // RANGE BUTTONS (CMC STYLE)
+  // RANGE BUTTONS
   // ------------------------------------------------------------
   const RangeButtons = () => {
     const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
-
     return (
       <div style={{ textAlign: "center", marginTop: "35px" }}>
         {ranges.map((r) => (
@@ -665,7 +552,6 @@ export default function Page() {
       </div>
     );
   };
-
   // ------------------------------------------------------------
   // RESULT DISPLAY
   // ------------------------------------------------------------
@@ -801,10 +687,8 @@ export default function Page() {
         </div>
       </div>
 
-      {/* RESULT */}
       {renderResult()}
 
-      {/* RANGE BUTTONS */}
       <RangeButtons />
 
       {/* CHART */}
