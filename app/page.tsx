@@ -347,41 +347,61 @@ export default function Page() {
     container.appendChild(tooltip);
 
     chart.subscribeCrosshairMove((param: any) => {
-      if (
-        !param ||
-        !param.time ||
-        !param.seriesPrices ||
-        !param.seriesPrices.get(series)
-      ) {
-        tooltip.style.display = "none";
-        return;
-      }
+    // ============================================================
+    // COINGECKO HOVER TOOLTIP (VISIBLE + LOCAL TIME + NO SECONDS)
+    // ============================================================
 
-      const price = param.seriesPrices.get(series);
-      const time = new Date((param.time as number) * 1000);
+    if (!param || !param.time || !param.seriesPrices) {
+      tooltip.style.display = "none";
+      return;
+    }
 
-      // ============================================================
-      // COINGECKO TOOLTIP (DATE + PRICE)
-      // ============================================================
-      tooltip.innerHTML = `
-        <div class="cg-tooltip-date">
-          ${time.toLocaleString()}
-        </div>
-        <div class="cg-tooltip-price">
-          Price: <strong>$${Number(price).toLocaleString()}</strong>
-        </div>
-      `;
-      // ============================================================
+    const price = param.seriesPrices.get(series);
+    if (price === undefined) {
+      tooltip.style.display = "none";
+      return;
+    }
 
-
-
-      const { x, y } = param.point;
-      tooltip.style.display = "block";
-      tooltip.style.left = `${x + 15}px`;
-      tooltip.style.top = `${y + 15}px`;
+    // --- Local time, no seconds (CG-style)
+    const date = new Date((param.time as number) * 1000);
+    const formattedTime = date.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
     });
 
-    // ============================================================
+    tooltip.innerHTML = `
+      <div class="cg-tooltip-date">${formattedTime}</div>
+      <div class="cg-tooltip-price">
+        Price: <strong>$${Number(price).toLocaleString()}</strong>
+      </div>
+    `;
+
+    tooltip.style.display = "block";
+
+    // --- Position ABOVE cursor and clamp inside chart (CRITICAL)
+    const point = param.point;
+    if (!point) return;
+
+    const OFFSET_X = 12;
+    const OFFSET_Y = 14;
+
+    let left = point.x + OFFSET_X;
+    let top = point.y - tooltip.offsetHeight - OFFSET_Y;
+
+    const maxLeft = container.clientWidth - tooltip.offsetWidth - 8;
+    const minTop = 8;
+
+    left = Math.min(left, maxLeft);
+    top = Math.max(top, minTop);
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  });
+
 
     if (hist.length > 0) {
       series.setData(
