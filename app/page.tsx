@@ -285,22 +285,31 @@ export default function Page() {
       },
 
       // ============================================================
-      // LOCAL TIME AXIS (MATCH COINGECKO)
+      // LOCAL TIME AXIS (LC v4 SAFE — MATCH COINGECKO)
       // ============================================================
       localization: {
-        timeFormatter: (timestamp: number) => {
-          const d = new Date(timestamp * 1000);
+        timeFormatter: (time: any) => {
+          let date: Date;
 
-          // If midnight, show date only (CG-style)
-          if (d.getHours() === 0 && d.getMinutes() === 0) {
-            return d.toLocaleDateString(undefined, {
+          // LC may pass BusinessDay OR timestamp
+          if (typeof time === "number") {
+            // UNIX timestamp (seconds)
+            date = new Date(time * 1000);
+          } else {
+            // BusinessDay { year, month, day }
+            date = new Date(time.year, time.month - 1, time.day);
+          }
+
+          // Midnight → show date only (CG behavior)
+          if (date.getHours() === 0 && date.getMinutes() === 0) {
+            return date.toLocaleDateString(undefined, {
               month: "short",
               day: "numeric",
             });
           }
 
-          // Otherwise show date + time (no seconds)
-          return d.toLocaleString(undefined, {
+          // Otherwise show local time (NO seconds)
+          return date.toLocaleString(undefined, {
             month: "short",
             day: "numeric",
             hour: "2-digit",
@@ -310,6 +319,7 @@ export default function Page() {
         },
       },
       // ============================================================
+
 
       grid: {
         vertLines: { visible: false },
