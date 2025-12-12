@@ -346,51 +346,53 @@ const build = useCallback(async () => {
     container.appendChild(tooltip);
   }
 
-  const handleMove = (param: any) => {
-    if (!param.time || !param.point) {
-      tooltip!.style.visibility = "hidden";
-      return;
-    }
 
-    const price = param.seriesPrices.get(series);
-    if (price === undefined) {
-      tooltip!.style.visibility = "hidden";
-      return;
-    }
+const handleMove = (param: any) => {
+  if (!param || !param.time || !param.point) {
+    tooltip!.style.visibility = "hidden";
+    return;
+  }
 
-    const d = new Date((param.time as number) * 1000);
+  // ✅ LC v4 SAFE PRICE ACCESS
+  const price = (param.seriesPrices as any)[series];
+  if (price === undefined) {
+    tooltip!.style.visibility = "hidden";
+    return;
+  }
 
-    tooltip!.innerHTML = `
-      <div style="opacity:0.75; margin-bottom:6px;">
-        ${d.toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })} — ${d.toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        })}
-      </div>
-      <div style="font-size:15px; font-weight:600;">
-        ${Number(price).toLocaleString(undefined, {
-          maximumFractionDigits: 8,
-        })}
-      </div>
-    `;
+  const d = new Date((param.time as number) * 1000);
 
-    const { x, y } = param.point;
-    const w = tooltip!.clientWidth;
-    const h = tooltip!.clientHeight;
+  tooltip!.innerHTML = `
+    <div style="opacity:0.75; margin-bottom:6px;">
+      ${d.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })} — ${d.toLocaleTimeString(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })}
+    </div>
+    <div style="font-size:15px; font-weight:600;">
+      ${Number(price).toLocaleString(undefined, {
+        maximumFractionDigits: 8,
+      })}
+    </div>
+  `;
 
-    tooltip!.style.left = `${Math.min(
-      Math.max(x - w / 2, 0),
-      container.clientWidth - w
-    )}px`;
-    tooltip!.style.top = `${y - h - 14}px`;
-    tooltip!.style.visibility = "visible";
-  };
+  const { x, y } = param.point;
+  const w = tooltip!.clientWidth;
+  const h = tooltip!.clientHeight;
 
+  tooltip!.style.left = `${Math.min(
+    Math.max(x - w / 2, 0),
+    container.clientWidth - w
+  )}px`;
+
+  tooltip!.style.top = `${y - h - 14}px`;
+  tooltip!.style.visibility = "visible";
+};
   chart.subscribeCrosshairMove(handleMove);
 
   const handleResize = () => {
