@@ -212,57 +212,62 @@ export default function Page() {
   }, [getHistory]);
 
   // ------------------------------------------------------------
-  // CHART BUILDER (STABLE + TOOLTIP + LOCAL TIME)
+  // CHART BUILDER
   // ------------------------------------------------------------
+  const latestBuildId = useRef<symbol | null>(null);
+
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
+
+    const buildId = Symbol();
+    latestBuildId.current = buildId;
 
     const container = chartContainerRef.current;
     if (!container) return;
 
-    // Ensure container has layout
-    if (container.clientWidth === 0) {
-      requestAnimationFrame(build);
-      return;
-    }
+    const days = rangeToDays(range);
+    const hist = await getNormalizedHistory(fromCoin, toCoin, days);
 
-    const hist = await getNormalizedHistory(
-      fromCoin,
-      toCoin,
-      rangeToDays(range)
-    );
-    if (!hist.length) return;
+    if (latestBuildId.current !== buildId) return;
 
-    // ------------------------------------------------------------
-    // CLEAN UP PREVIOUS CHART
-    // ------------------------------------------------------------
     if (chartRef.current) {
-      chartRef.current.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
+    // ============================================================
+    // CLEAN UP COINGECKO TOOLTIP (ATTACHED TO BODY)
+    // ============================================================
+    const existingTooltip = document.querySelector(".cg-tooltip");
+    if (existingTooltip) {
+      existingTooltip.remove();
     }
+    // ============================================================
+
+    chartRef.current.remove();
+    chartRef.current = null;
+    seriesRef.current = null;
+  }
+
 
     const isDark = document.documentElement.classList.contains("dark");
 
-    // ------------------------------------------------------------
-    // CREATE CHART
-    // ------------------------------------------------------------
+    // ============================================================
+    // COINGECKO-STYLE CHART (LAYOUT + BEHAVIOR MATCH)
+    // ============================================================
+
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 400,
+      height: 390,
 
       layout: {
         background: { color: "transparent" },
         textColor: isDark ? "#cbd5e1" : "#475569",
       },
 
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
-      },
-
       rightPriceScale: {
+        visible: true,
         borderVisible: false,
+        scaleMargins: {
+          top: 0.15,
+          bottom: 0.15,
+        },
       },
 
       leftPriceScale: {
@@ -273,124 +278,210 @@ export default function Page() {
         borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (t: UTCTimestamp) => {
-          const d = new Date(t * 1000);
-          return range === "24H"
-            ? d.toLocaleTimeString(undefined, {
-                hour: "numeric",
-                hour12: true,
-              })
-            : d.toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-              });
+        rightOffset: 12,
+        barSpacing: 6,
+        fixLeftEdge: true,
+        fixRightEdge: false,
+      },
+
+      // ============================================================
+      // LOCAL TIME AXIS (LC v4 SAFE — MATCH COINGECKO)
+      // ============================================================
+      localization: {
+        timeFormatter: (time: any) => {
+          let date: Date;
+
+          // LC may pass BusinessDay OR timestamp
+          if (typeof time === "number") {
+            // UNIX timestamp (seconds)
+            date = new Date(time * 1000);
+          } else {
+            // BusinessDay { year, month, day }
+            date = new Date(time.year, time.month - 1, time.day);
+          }
+
+          // Midnight → show date only (CG behavior)
+          if (date.getHours() === 0 && date.getMinutes() === 0) {
+            return date.toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            });
+          }
+
+          // Otherwise show local time (NO seconds)
+          return date.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          });
+        },
+      },
+      // ============================================================
+
+
+      grid: {
+        vertLines: { visible: false },
+        horzLines: {
+          color: isDark ? "#1f2937" : "#eef2f7",
         },
       },
 
+      // ============================================================
+      // COINGECKO CROSSHAIR (HOVER SNAP ENABLED)
+      // ============================================================
       crosshair: {
-        mode: 1,
+        mode: 2, // magnet / snap to point
+
         vertLine: {
+          visible: true,
+          labelVisible: false,
           width: 1,
-          style: 0,
-          color: isDark
-            ? "rgba(203,213,225,0.4)"
-            : "rgba(71,85,105,0.4)",
+          style: 2, // dashed (CG)
+          color: isDark ? "#94a3b8" : "#cbd5e1",
         },
-        horzLine: { visible: false },
+
+        horzLine: {
+          visible: true,
+          labelVisible: true, // price shows only on hover
+          width: 1,
+          style: 0, // solid (CG)
+          color: isDark ? "#94a3b8" : "#cbd5e1",
+        },
       },
+      // ============================================================
     });
 
-    chartRef.current = chart;
 
-    // ------------------------------------------------------------
-    // MAIN PRICE SERIES
-    // ------------------------------------------------------------
+    // ============================================================
+    // COINGECKO AREA SERIES (COMMENTED OUT LAST PRICE)
+    // ============================================================
     const series = chart.addAreaSeries({
       lineWidth: 2,
+
+      // your existing colors
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
       topColor: isDark
         ? "rgba(78,161,247,0.35)"
         : "rgba(59,130,246,0.35)",
-      bottomColor: "rgba(59,130,246,0.05)",
+      bottomColor: "rgba(59,130,246,0.02)",
+
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+
+      // ============================================================
+      // COINGECKO-STYLE RIGHT PRICE (NO LINE)
+      // ============================================================
+      lastValueVisible: true,
+      priceLineVisible: false,
     });
 
+
+    chartRef.current = chart;
     seriesRef.current = series;
 
-    series.setData(
-      hist.map((p: HistoryPoint) => ({
-        time: p.time as UTCTimestamp,
-        value: p.value,
-      }))
-    );
+    // ============================================================
+    // COINGECKO-STYLE FLOATING TOOLTIP
+    // ============================================================
 
-    chart.timeScale().fitContent();
+    // ============================================================
+    // COINGECKO TOOLTIP (ATTACHED TO BODY — REQUIRED)
+    // ============================================================
 
-    // ------------------------------------------------------------
-    // TOOLTIP (COINGECKO-STYLE)
-    // ------------------------------------------------------------
     const tooltip = document.createElement("div");
     tooltip.className = "cg-tooltip";
-    tooltip.style.position = "absolute";
-    tooltip.style.pointerEvents = "none";
-    tooltip.style.visibility = "hidden";
-    container.appendChild(tooltip);
+    document.body.appendChild(tooltip);
+    // ============================================================
+
 
     chart.subscribeCrosshairMove((param: any) => {
-      if (!param || !param.point || !param.time) {
-        tooltip.style.visibility = "hidden";
-        return;
-      }
+  if (!param || !param.time || !param.seriesPrices || !param.point) {
+    tooltip.style.display = "none";
+    return;
+  }
 
-      const price = param.seriesPrices?.get(series);
-      if (price === undefined) {
-        tooltip.style.visibility = "hidden";
-        return;
-      }
+  const price = param.seriesPrices.get(series);
+  if (price === undefined) {
+    tooltip.style.display = "none";
+    return;
+  }
 
-      const ts = new Date((param.time as number) * 1000);
+  // --- Local time, NO seconds
+  const date = new Date((param.time as number) * 1000);
+  const formattedTime = date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 
-      tooltip.innerHTML = `
-        <div style="font-size:12px; opacity:0.8; margin-bottom:6px;">
-          ${ts.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })} —
-          ${ts.toLocaleTimeString(undefined, {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-          })}
-        </div>
-        <div style="font-size:15px; font-weight:600;">
-          ${Number(price).toLocaleString()}
-        </div>
-      `;
+  tooltip.innerHTML = `
+    <div class="cg-tooltip-date">${formattedTime}</div>
+    <div class="cg-tooltip-price">
+      Price: <strong>$${Number(price).toLocaleString()}</strong>
+    </div>
+  `;
 
-      const { x, y } = param.point;
-      const w = tooltip.clientWidth;
-      const h = tooltip.clientHeight;
+  tooltip.style.display = "block";
 
-      tooltip.style.left = `${Math.min(
-        Math.max(x - w / 2, 0),
-        container.clientWidth - w
-      )}px`;
-      tooltip.style.top = `${y - h - 12}px`;
-      tooltip.style.visibility = "visible";
-    });
+  // --- Position ABOVE cursor (CG-style)
+  const rect = container.getBoundingClientRect();
 
-    // ------------------------------------------------------------
-    // RESIZE HANDLER
-    // ------------------------------------------------------------
+  const x = rect.left + param.point.x;
+  const y = rect.top + param.point.y;
+
+  const OFFSET_X = 12;
+  const OFFSET_Y = 14;
+
+  tooltip.style.left = `${x + OFFSET_X}px`;
+  tooltip.style.top = `${y - tooltip.offsetHeight - OFFSET_Y}px`;
+});
+
+
+
+    if (hist.length > 0) {
+      series.setData(
+        hist.map((p: HistoryPoint) => ({
+          time: p.time as UTCTimestamp,
+          value: p.value,
+        }))
+      );
+      // ============================================================
+      // COINGECKO TIME-ANCHOR BEHAVIOR
+      // ============================================================
+      chart.timeScale().fitContent();
+      chart.timeScale().scrollToRealTime();
+      // ============================================================
+
+    } else {
+      series.setData([]);
+    }
+
+    // Resize handling
     const handleResize = () => {
       if (!chartRef.current) return;
-      chartRef.current.resize(container.clientWidth, 400);
+      chartRef.current.resize(container.clientWidth, 390);
     };
-
     window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
+  // ------------------------------------------------------------
+  // CHART EFFECT (DELAY TO FIX FIRST-LOAD RACE)
+// ------------------------------------------------------------
+  useEffect(() => {
+    if (!fromCoin || !toCoin) return;
+    const container = chartContainerRef.current;
+    if (!container) return;
 
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        build();
+      });
+    });
+  }, [fromCoin, toCoin, range, build]);
 
 
 
