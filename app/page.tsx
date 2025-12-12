@@ -354,7 +354,8 @@ const handleMove = (param: any) => {
   }
 
   // ✅ LC v4 SAFE PRICE ACCESS
-  const price = (param.seriesPrices as any)[series];
+const prices = param.seriesPrices as Record<string, number>;
+const price = Object.values(prices)[0];
   if (price === undefined) {
     tooltip!.style.visibility = "hidden";
     return;
