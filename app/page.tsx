@@ -215,16 +215,21 @@ export default function Page() {
   // CHART BUILDER
   // ------------------------------------------------------------
   const latestBuildId = useRef<symbol | null>(null);
-  const mouseMoveHandlerRef = useRef<((e: MouseEvent) => void) | null>(null);
 
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
 
-    const buildId = Symbol();
-    latestBuildId.current = buildId;
-
     const container = chartContainerRef.current;
     if (!container) return;
+
+    // 🔥 CRITICAL: wait until container has layout
+    if (container.clientWidth === 0) {
+      requestAnimationFrame(build);
+      return;
+    }
+
+    const buildId = Symbol();
+    latestBuildId.current = buildId;
 
     const days = rangeToDays(range);
     const hist = await getNormalizedHistory(fromCoin, toCoin, days);
@@ -241,11 +246,10 @@ export default function Page() {
     }
     // ============================================================
 
-
     const isDark = document.documentElement.classList.contains("dark");
 
     // ============================================================
-    // COINGECKO-STYLE CHART
+    // COINGECKO-STYLE CHART (STABLE BASE)
     // ============================================================
     const chart = createChart(container, {
       width: container.clientWidth,
@@ -262,13 +266,15 @@ export default function Page() {
         scaleMargins: { top: 0.15, bottom: 0.15 },
       },
 
-      leftPriceScale: { visible: false },
+      leftPriceScale: {
+        visible: false,
+      },
 
       timeScale: {
         borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 12,
+        rightOffset: 10,
         barSpacing: 6,
         fixLeftEdge: true,
         fixRightEdge: false,
@@ -282,7 +288,7 @@ export default function Page() {
       },
 
       crosshair: {
-        mode: 2,
+        mode: 2, // magnet
         vertLine: {
           visible: true,
           labelVisible: false,
@@ -317,68 +323,12 @@ export default function Page() {
     seriesRef.current = series;
 
     // ============================================================
-    // TRACK MOUSE POSITION (SAFE — LC v4)
+    // SET DATA (FIXED TIMESTAMP TYPE)
     // ============================================================
-    let lastMouseX = 0;
-    let lastMouseY = 0;
-
-    const mouseMoveHandler = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      lastMouseX = e.clientX - rect.left;
-      lastMouseY = e.clientY - rect.top;
-    };
-
-    mouseMoveHandlerRef.current = mouseMoveHandler;
-    container.addEventListener("mousemove", mouseMoveHandler);
-    // ============================================================
-
-    // ============================================================
-    // COINGECKO TOOLTIP (BODY-ATTACHED)
-    // ============================================================
-    const tooltip = document.createElement("div");
-    tooltip.className = "cg-tooltip";
-    document.body.appendChild(tooltip);
-    // ============================================================
-
-    chart.subscribeCrosshairMove((param: any) => {
-      if (!param || !param.time || !param.seriesPrices) {
-        tooltip.style.display = "none";
-        return;
-      }
-
-      const price = param.seriesPrices.get(series);
-      if (price === undefined) {
-        tooltip.style.display = "none";
-        return;
-      }
-
-      const date = new Date((param.time as number) * 1000);
-      const formattedTime = date.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
-
-      tooltip.innerHTML = `
-        <div class="cg-tooltip-date">${formattedTime}</div>
-        <div class="cg-tooltip-price">
-          Price: <strong>$${Number(price).toLocaleString()}</strong>
-        </div>
-      `;
-
-      tooltip.style.display = "block";
-
-      const rect = container.getBoundingClientRect();
-      tooltip.style.left = `${rect.left + lastMouseX + 12}px`;
-      tooltip.style.top = `${rect.top + lastMouseY - tooltip.offsetHeight - 14}px`;
-    });
-
     if (hist.length > 0) {
       series.setData(
         hist.map((p: HistoryPoint) => ({
-          time: p.time as UTCTimestamp,
+          time: Number(p.time) as UTCTimestamp,
           value: p.value,
         }))
       );
@@ -388,12 +338,19 @@ export default function Page() {
     } else {
       series.setData([]);
     }
+    // ============================================================
 
+    // ============================================================
+    // RESIZE HANDLER
+    // ============================================================
     const handleResize = () => {
-      chart.resize(container.clientWidth, 390);
+      if (!chartRef.current) return;
+      chartRef.current.resize(container.clientWidth, 390);
     };
+
     window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
+
 
 
 
