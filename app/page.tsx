@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import { createChart, type UTCTimestamp } from "lightweight-charts";
+import {
+  createChart,
+  type UTCTimestamp,
+} from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
 // ------------------------------------------------------------
@@ -75,6 +78,12 @@ export default function Page() {
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
+
+  // Debug exposure
+  useEffect(() => {
+    (window as any).chartRef = chartRef;
+    (window as any).seriesRef = seriesRef;
+  }, []);
 
   // ------------------------------------------------------------
   // LOAD COINS
@@ -159,8 +168,8 @@ export default function Page() {
                   365;
 
   // ------------------------------------------------------------
-  // RAW HISTORY
-  // ------------------------------------------------------------
+  // RAW HISTORY (CACHED)
+// ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
     if (historyCache.current[key]) return historyCache.current[key];
@@ -169,21 +178,22 @@ export default function Page() {
     const d = await r.json();
 
     const cleaned = (d.history ?? [])
-      .filter((p: HistoryPoint) => Number.isFinite(p.value))
-      .sort((a: HistoryPoint, b: HistoryPoint) => a.time - b.time);
+      .filter((p: any) => Number.isFinite(p.value))
+      .sort((a: any, b: any) => a.time - b.time);
 
     historyCache.current[key] = cleaned;
     return cleaned;
   }, []);
 
   // ------------------------------------------------------------
-  // NORMALIZED HISTORY
-  // ------------------------------------------------------------
+  // ⭐ NORMALIZED HISTORY (ALWAYS HOURLY, ALWAYS MATCHING POINT COUNTS)
+// ------------------------------------------------------------
   const getNormalizedHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     let forwardBase = base;
     let forwardQuote = quote;
     let invert = false;
 
+    // Backend returns DAILY for fiat → crypto, so we must invert manually
     if (base.type === "fiat") {
       forwardBase = quote;
       forwardQuote = base;
@@ -191,8 +201,10 @@ export default function Page() {
     }
 
     const hist = await getHistory(forwardBase, forwardQuote, days);
+
     if (!invert) return hist;
 
+    // Invert values (1/value)
     return hist.map((p: HistoryPoint) => ({
       time: p.time,
       value: p.value ? 1 / p.value : 0,
@@ -200,7 +212,7 @@ export default function Page() {
   }, [getHistory]);
 
   // ------------------------------------------------------------
-  // CHART BUILDER + TOOLTIP ABOVE CURSOR
+  // ✅ CHART BUILDER (CURRENT PRICE LABEL + TOOLTIP ABOVE CURSOR)
   // ------------------------------------------------------------
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
@@ -211,12 +223,14 @@ export default function Page() {
     const hist = await getNormalizedHistory(fromCoin, toCoin, rangeToDays(range));
     if (!hist.length) return;
 
+    // Remove previous chart (also removes its internal listeners)
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
       seriesRef.current = null;
     }
 
+    // Remove previous tooltip div if it exists
     const oldTooltip = container.querySelector(".cg-tooltip");
     if (oldTooltip) oldTooltip.remove();
 
@@ -225,38 +239,79 @@ export default function Page() {
     const chart = createChart(container, {
       width: container.clientWidth,
       height: 390,
+
       layout: {
         background: { color: "transparent" },
         textColor: isDark ? "#e5e7eb" : "#374151",
       },
+
       grid: {
         vertLines: { visible: false },
         horzLines: { visible: false },
       },
+
       rightPriceScale: {
         borderVisible: false,
+        scaleMargins: { top: 0.2, bottom: 0.15 },
       },
+
       timeScale: {
         borderVisible: false,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (t: UTCTimestamp) => {
-          const d = new Date(t * 1000);
-          return range === "24H"
-            ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
-            : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+        // ✅ spacing like CG
+        barSpacing: 8,
+        rightOffset: 6,
+
+        tickMarkFormatter: (time: UTCTimestamp) => {
+          const d = new Date(time * 1000);
+
+          if (range === "24H") {
+            return d.toLocaleTimeString(undefined, {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            });
+          }
+
+          return d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
         },
       },
+
       crosshair: {
-        mode: 2,
-        vertLine: { width: 1, color: isDark ? "#94a3b8" : "#cbd5e1" },
-        horzLine: { visible: false },
+        mode: 2, // ✅ magnet snap so we always hit the series
+
+        vertLine: {
+          visible: true,
+          labelVisible: false,
+          width: 1,
+          style: 2,
+          color: isDark ? "#94a3b8" : "#cbd5e1",
+        },
+
+        // ✅ remove the black hover label/box on the Y-axis
+        horzLine: {
+          visible: false,
+          labelVisible: false,
+        },
       },
     });
 
-    const series = chart.addLineSeries({
-      lineWidth: 2,
-      color: isDark ? "#4ea1f7" : "#3b82f6",
+    const series = chart.addAreaSeries({
+      lineWidth: 3,
+      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
+      topColor: isDark ? "rgba(78,161,247,0.45)" : "rgba(59,130,246,0.45)",
+      bottomColor: "rgba(59,130,246,0.05)",
+
+      // ✅ bring back CURRENT PRICE LABEL on right axis
+      lastValueVisible: true,
+
+      // ✅ keep horizontal last-price line hidden
+      priceLineVisible: false,
     });
 
     chartRef.current = chart;
@@ -271,11 +326,15 @@ export default function Page() {
 
     chart.timeScale().fitContent();
 
+    // ------------------------------------------------------------
+    // ✅ TOOLTIP (ABOVE CURSOR, TIME + PRICE ONLY)
+    // ------------------------------------------------------------
     const tooltip = document.createElement("div");
     tooltip.className = "cg-tooltip";
     tooltip.style.position = "absolute";
     tooltip.style.pointerEvents = "none";
     tooltip.style.visibility = "hidden";
+    tooltip.style.zIndex = "10";
     tooltip.style.padding = "10px 14px";
     tooltip.style.borderRadius = "10px";
     tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
@@ -284,8 +343,9 @@ export default function Page() {
     tooltip.style.fontSize = "13px";
     container.appendChild(tooltip);
 
-    chart.subscribeCrosshairMove((param: any) => {
-      if (!param.time || !param.point || !param.seriesPrices) {
+    // IMPORTANT: in LC v4, param.seriesPrices is a Map
+    const handleMove = (param: any) => {
+      if (!param || !param.time || !param.point || !param.seriesPrices) {
         tooltip.style.visibility = "hidden";
         return;
       }
@@ -300,11 +360,18 @@ export default function Page() {
 
       tooltip.innerHTML = `
         <div style="opacity:0.75; margin-bottom:6px;">
-          ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-          — ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true })}
+          ${d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })} — ${d.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
         </div>
       `;
 
@@ -312,37 +379,297 @@ export default function Page() {
       const w = tooltip.clientWidth;
       const h = tooltip.clientHeight;
 
-      tooltip.style.left = `${Math.min(Math.max(x - w / 2, 0), container.clientWidth - w)}px`;
+      tooltip.style.left = `${Math.min(
+        Math.max(x - w / 2, 0),
+        container.clientWidth - w
+      )}px`;
       tooltip.style.top = `${Math.max(y - h - 14, 8)}px`;
       tooltip.style.visibility = "visible";
-    });
+    };
+
+    chart.subscribeCrosshairMove(handleMove);
+
+    // Resize
+    const handleResize = () => {
+      chart.resize(container.clientWidth, 390);
+    };
+    window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    requestAnimationFrame(() => requestAnimationFrame(build));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(build);
+    });
   }, [fromCoin, toCoin, range, build]);
 
+
+
+
+
+
+
   // ------------------------------------------------------------
-  // UI (UNCHANGED)
+  // THEME UPDATE HANDLER
+// ------------------------------------------------------------
+  useEffect(() => {
+    const handler = () => {
+      if (!chartRef.current || !seriesRef.current) return;
+
+      const isDark = document.documentElement.classList.contains("dark");
+
+      chartRef.current.applyOptions({
+        layout: {
+          background: { color: isDark ? "#111" : "#fff" },
+          textColor: isDark ? "#eee" : "#111",
+        },
+        grid: {
+          vertLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+          horzLines: { color: isDark ? "#2a2a2a" : "#dcdcdc" },
+        },
+      });
+
+      seriesRef.current.applyOptions({
+        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
+        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
+      });
+    };
+
+    window.addEventListener("theme-change", handler);
+    return () => window.removeEventListener("theme-change", handler);
+  }, []);
+
   // ------------------------------------------------------------
+  // DROPDOWN HELPERS
+// ------------------------------------------------------------
+  const renderRow = useCallback(
+    (coin: Coin, type: "from" | "to") => {
+      const disabled =
+        (type === "from" && coin.id === toCoin?.id) ||
+        (type === "to" && coin.id === fromCoin?.id);
+
+      const selected =
+        (type === "from" && coin.id === fromCoin?.id) ||
+        (type === "to" && coin.id === toCoin?.id);
+
+      let cls = "dropdown-row";
+      if (selected) cls += " dropdown-selected";
+      if (disabled) cls += " dropdown-disabled";
+
+      return (
+        <div
+          key={coin.id}
+          className={cls}
+          onClick={() => {
+            if (disabled) return;
+            type === "from" ? setFromCoin(coin) : setToCoin(coin);
+            setOpenDropdown(null);
+            setFromSearch("");
+            setToSearch("");
+          }}
+        >
+          <img src={coin.image} className="dropdown-flag" />
+          <div>
+            <div className="dropdown-symbol">{coin.symbol}</div>
+            <div className="dropdown-name">{coin.name}</div>
+          </div>
+        </div>
+      );
+    },
+    [fromCoin, toCoin]
+  );
+
+  const renderDropdown = useCallback(
+    (type: "from" | "to") => {
+      const search = type === "from" ? fromSearch : toSearch;
+      const setSearch = type === "from" ? setFromSearch : setToSearch;
+
+      return (
+        <div className="dropdown-panel">
+          <input
+            className="dropdown-search"
+            placeholder="Search..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {filteredCoins(search).map((c) => renderRow(c, type))}
+        </div>
+      );
+    },
+    [filteredCoins, fromSearch, toSearch, renderRow]
+  );
+
+  // ------------------------------------------------------------
+  // RANGE BUTTONS
+// ------------------------------------------------------------
+  const RangeButtons = () => {
+    const ranges = ["24H", "7D", "1M", "3M", "6M", "1Y"];
+
+    return (
+      <div style={{ textAlign: "center", marginTop: "35px" }}>
+        {ranges.map((r) => (
+          <button
+            key={r}
+            onClick={() => setRange(r)}
+            style={{
+              margin: "0 4px",
+              padding: "8px 14px",
+              borderRadius: "8px",
+              border: "1px solid var(--card-border)",
+              background: range === r ? "var(--accent)" : "var(--card-bg)",
+              color: range === r ? "#fff" : "var(--text)",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            {r}
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  // ------------------------------------------------------------
+  // RESULT DISPLAY
+// ------------------------------------------------------------
+  const renderResult = () => {
+    if (!result || !fromCoin || !toCoin) return null;
+
+    const baseRate = result / Number(amount);
+
+    return (
+      <div style={{ textAlign: "center", marginTop: "40px" }}>
+        <div style={{ fontSize: "22px", opacity: 0.65 }}>
+          1 {fromCoin.symbol} → {toCoin.symbol}
+        </div>
+
+        <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
+          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+        </div>
+
+        <div style={{ marginTop: "10px", opacity: 0.7 }}>
+          1 {fromCoin.symbol} =
+          {" "}
+          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {" "}
+          {toCoin.symbol}
+          <br />
+          1 {toCoin.symbol} =
+          {" "}
+          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {" "}
+          {fromCoin.symbol}
+        </div>
+      </div>
+    );
+  };
+
+  // ------------------------------------------------------------
+  // MAIN UI
+// ------------------------------------------------------------
   return (
     <div style={{ maxWidth: "1150px", margin: "0 auto", padding: "22px" }}>
       <div style={{ textAlign: "right", marginBottom: "10px" }}>
         <ThemeToggle />
       </div>
 
-      {/* RESULT */}
-      {result && fromCoin && toCoin && (
-        <div style={{ textAlign: "center", marginTop: "40px" }}>
-          <div style={{ fontSize: "22px", opacity: 0.65 }}>
-            1 {fromCoin.symbol} → {toCoin.symbol}
-          </div>
-          <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-            {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
-          </div>
+      {/* TOP ROW */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "flex-start",
+          gap: "32px",
+          flexWrap: "wrap",
+          marginTop: "10px",
+        }}
+      >
+        {/* AMOUNT */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <h3>AMOUNT</h3>
+          <input
+            value={amount}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) setAmount(v);
+            }}
+            className="selector-box"
+            style={{ width: "260px" }}
+          />
+          {(amount === "" || Number(amount) <= 0) && (
+            <div style={{ color: "red", marginTop: "6px", fontSize: "14px" }}>
+              Enter a Number Greater than 0
+            </div>
+          )}
         </div>
-      )}
+
+        {/* FROM */}
+        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+          <h3>FROM</h3>
+          <div
+            className="selector-box"
+            onClick={() => {
+              setOpenDropdown(openDropdown === "from" ? null : "from");
+              setFromSearch("");
+            }}
+          >
+            {fromCoin && (
+              <>
+                <img src={fromCoin.image} className="selector-img" />
+                <div>
+                  <div className="selector-symbol">{fromCoin.symbol}</div>
+                  <div className="selector-name">{fromCoin.name}</div>
+                </div>
+              </>
+            )}
+          </div>
+          {openDropdown === "from" && renderDropdown("from")}
+        </div>
+
+        {/* SWAP */}
+        <div
+          className="swap-circle"
+          style={{ marginTop: "38px" }}
+          onClick={() => {
+            if (fromCoin && toCoin) {
+              const f = fromCoin;
+              setFromCoin(toCoin);
+              setToCoin(f);
+            }
+          }}
+        >
+          <div className="swap-icon" />
+        </div>
+
+        {/* TO */}
+        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+          <h3>TO</h3>
+          <div
+            className="selector-box"
+            onClick={() => {
+              setOpenDropdown(openDropdown === "to" ? null : "to");
+              setToSearch("");
+            }}
+          >
+            {toCoin && (
+              <>
+                <img src={toCoin.image} className="selector-img" />
+                <div>
+                  <div className="selector-symbol">{toCoin.symbol}</div>
+                  <div className="selector-name">{toCoin.name}</div>
+                </div>
+              </>
+            )}
+          </div>
+          {openDropdown === "to" && renderDropdown("to")}
+        </div>
+      </div>
+
+      {/* RESULT */}
+      {renderResult()}
+
+      {/* RANGE BUTTONS */}
+      <RangeButtons />
 
       {/* CHART */}
       <div
@@ -354,10 +681,13 @@ export default function Page() {
           borderRadius: "14px",
           border: "1px solid var(--card-border)",
           background: "var(--card-bg)",
+
+          // 🔥 REQUIRED FOR TOOLTIP
           position: "relative",
           overflow: "visible",
         }}
       />
+
     </div>
   );
 }
