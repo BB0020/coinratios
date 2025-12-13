@@ -212,7 +212,7 @@ export default function Page() {
   }, [getHistory]);
 
   // ------------------------------------------------------------
-  // ✅ FINAL COINGECKO-STYLE CHART BUILDER (WORKING)
+  // ✅ CHART BUILDER (CURRENT PRICE LABEL + TOOLTIP ABOVE CURSOR)
   // ------------------------------------------------------------
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
@@ -220,19 +220,19 @@ export default function Page() {
     const container = chartContainerRef.current;
     if (!container) return;
 
-    const hist = await getNormalizedHistory(
-      fromCoin,
-      toCoin,
-      rangeToDays(range)
-    );
+    const hist = await getNormalizedHistory(fromCoin, toCoin, rangeToDays(range));
     if (!hist.length) return;
 
-    // Cleanup
+    // Remove previous chart (also removes its internal listeners)
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
       seriesRef.current = null;
     }
+
+    // Remove previous tooltip div if it exists
+    const oldTooltip = container.querySelector(".cg-tooltip");
+    if (oldTooltip) oldTooltip.remove();
 
     const isDark = document.documentElement.classList.contains("dark");
 
@@ -260,7 +260,7 @@ export default function Page() {
         timeVisible: true,
         secondsVisible: false,
 
-        // ✅ FIXED SPACING (CG-like)
+        // ✅ spacing like CG
         barSpacing: 8,
         rightOffset: 6,
 
@@ -282,9 +282,8 @@ export default function Page() {
         },
       },
 
-      // ✅ MAGNET SNAP (REQUIRED FOR TOOLTIP)
       crosshair: {
-        mode: 2, // 🔥 magnet
+        mode: 2, // ✅ magnet snap so we always hit the series
 
         vertLine: {
           visible: true,
@@ -294,7 +293,7 @@ export default function Page() {
           color: isDark ? "#94a3b8" : "#cbd5e1",
         },
 
-        // ❌ DISABLE HORIZONTAL LINE COMPLETELY
+        // ✅ remove the black hover label/box on the Y-axis
         horzLine: {
           visible: false,
           labelVisible: false,
@@ -305,12 +304,13 @@ export default function Page() {
     const series = chart.addAreaSeries({
       lineWidth: 3,
       lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark
-        ? "rgba(78,161,247,0.45)"
-        : "rgba(59,130,246,0.45)",
+      topColor: isDark ? "rgba(78,161,247,0.45)" : "rgba(59,130,246,0.45)",
       bottomColor: "rgba(59,130,246,0.05)",
 
-      lastValueVisible: false, // ❌ no black box
+      // ✅ bring back CURRENT PRICE LABEL on right axis
+      lastValueVisible: true,
+
+      // ✅ keep horizontal last-price line hidden
       priceLineVisible: false,
     });
 
@@ -327,42 +327,38 @@ export default function Page() {
     chart.timeScale().fitContent();
 
     // ------------------------------------------------------------
-    // ✅ FLOATING TOOLTIP (ABOVE CURSOR)
+    // ✅ TOOLTIP (ABOVE CURSOR, TIME + PRICE ONLY)
     // ------------------------------------------------------------
-    let tooltip = container.querySelector(".cg-tooltip") as HTMLDivElement | null;
-    if (!tooltip) {
-      tooltip = document.createElement("div");
-      tooltip.className = "cg-tooltip";
-      tooltip.style.position = "absolute";
-      tooltip.style.pointerEvents = "none";
-      tooltip.style.visibility = "hidden";
-      tooltip.style.zIndex = "10";
-      tooltip.style.padding = "10px 14px";
-      tooltip.style.borderRadius = "10px";
-      tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
-      tooltip.style.color = isDark ? "#f9fafb" : "#111";
-      tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
-      tooltip.style.fontSize = "13px";
-      container.appendChild(tooltip);
-    }
+    const tooltip = document.createElement("div");
+    tooltip.className = "cg-tooltip";
+    tooltip.style.position = "absolute";
+    tooltip.style.pointerEvents = "none";
+    tooltip.style.visibility = "hidden";
+    tooltip.style.zIndex = "10";
+    tooltip.style.padding = "10px 14px";
+    tooltip.style.borderRadius = "10px";
+    tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
+    tooltip.style.color = isDark ? "#f9fafb" : "#111";
+    tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
+    tooltip.style.fontSize = "13px";
+    container.appendChild(tooltip);
 
-    chart.subscribeCrosshairMove((param: any) => {
-      if (!param.time || !param.point || !param.seriesPrices) {
-        tooltip!.style.visibility = "hidden";
+    // IMPORTANT: in LC v4, param.seriesPrices is a Map
+    const handleMove = (param: any) => {
+      if (!param || !param.time || !param.point || !param.seriesPrices) {
+        tooltip.style.visibility = "hidden";
         return;
       }
 
-      // ✅ TS + LC v4 SAFE
-      const prices = param.seriesPrices as Record<string, number>;
-      const price = Object.values(prices)[0];
+      const price = param.seriesPrices.get(series);
       if (price === undefined) {
-        tooltip!.style.visibility = "hidden";
+        tooltip.style.visibility = "hidden";
         return;
       }
 
       const d = new Date((param.time as number) * 1000);
 
-      tooltip!.innerHTML = `
+      tooltip.innerHTML = `
         <div style="opacity:0.75; margin-bottom:6px;">
           ${d.toLocaleDateString(undefined, {
             month: "short",
@@ -375,25 +371,29 @@ export default function Page() {
           })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
         </div>
       `;
 
       const { x, y } = param.point;
-      const w = tooltip!.clientWidth;
-      const h = tooltip!.clientHeight;
+      const w = tooltip.clientWidth;
+      const h = tooltip.clientHeight;
 
-      tooltip!.style.left = `${Math.min(
+      tooltip.style.left = `${Math.min(
         Math.max(x - w / 2, 0),
         container.clientWidth - w
       )}px`;
-      tooltip!.style.top = `${y - h - 14}px`;
-      tooltip!.style.visibility = "visible";
-    });
+      tooltip.style.top = `${Math.max(y - h - 14, 8)}px`;
+      tooltip.style.visibility = "visible";
+    };
 
-    window.addEventListener("resize", () => {
+    chart.subscribeCrosshairMove(handleMove);
+
+    // Resize
+    const handleResize = () => {
       chart.resize(container.clientWidth, 390);
-    });
+    };
+    window.addEventListener("resize", handleResize);
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   useEffect(() => {
@@ -402,6 +402,7 @@ export default function Page() {
       requestAnimationFrame(build);
     });
   }, [fromCoin, toCoin, range, build]);
+
 
 
 
