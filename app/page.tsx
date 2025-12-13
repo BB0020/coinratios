@@ -215,13 +215,13 @@ export default function Page() {
   // ✅ CHART BUILDER (CURRENT PRICE LABEL + TOOLTIP ABOVE CURSOR)
   // ------------------------------------------------------------
   const build = useCallback(async () => {
-    if (!fromCoin || !toCoin) return;
+    if (!fromCoin || !toCoin) return undefined;
 
     const container = chartContainerRef.current;
-    if (!container) return;
+    if (!container) return undefined;
 
     const hist = await getNormalizedHistory(fromCoin, toCoin, rangeToDays(range));
-    if (!hist.length) return;
+    if (!hist.length) return undefined;
 
     // Remove previous chart (also removes its internal listeners)
     if (chartRef.current) {
@@ -335,12 +335,14 @@ export default function Page() {
     tooltip.style.pointerEvents = "none";
     tooltip.style.visibility = "hidden";
     tooltip.style.zIndex = "10";
-    tooltip.style.padding = "10px 14px";
-    tooltip.style.borderRadius = "10px";
-    tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
-    tooltip.style.color = isDark ? "#f9fafb" : "#111";
-    tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
+    tooltip.style.padding = "12px 14px";
+    tooltip.style.borderRadius = "12px";
+    tooltip.style.background = isDark ? "#0f172a" : "#ffffff";
+    tooltip.style.color = isDark ? "#e2e8f0" : "#0f172a";
+    tooltip.style.boxShadow = "0 10px 32px rgba(0,0,0,0.18)";
     tooltip.style.fontSize = "13px";
+    tooltip.style.border = isDark ? "1px solid #1e293b" : "1px solid #e5e7eb";
+    tooltip.style.backdropFilter = "blur(4px)";
     container.appendChild(tooltip);
 
     // IMPORTANT: in LC v4, param.seriesPrices is a Map
@@ -357,9 +359,19 @@ export default function Page() {
       }
 
       const d = new Date((param.time as number) * 1000);
+      const subtle = isDark ? "#94a3b8" : "#6b7280";
 
       tooltip.innerHTML = `
-        <div style="opacity:0.75; margin-bottom:6px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+          <div style="font-size:14px; font-weight:700;">${fromCoin.symbol} / ${toCoin.symbol}</div>
+          <div style="padding:4px 8px; border-radius:999px; background:${isDark ? "#1f2937" : "#f3f4f6"}; color:${subtle}; font-size:12px;">
+            ${range}
+          </div>
+        </div>
+        <div style="font-size:17px; font-weight:700; margin-bottom:6px;">
+          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+        </div>
+        <div style="font-size:12px; color:${subtle};">
           ${d.toLocaleDateString(undefined, {
             month: "short",
             day: "numeric",
@@ -369,9 +381,6 @@ export default function Page() {
             minute: "2-digit",
             hour12: true,
           })}
-        </div>
-        <div style="font-size:15px; font-weight:600;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
         </div>
       `;
 
@@ -394,13 +403,42 @@ export default function Page() {
       chart.resize(container.clientWidth, 390);
     };
     window.addEventListener("resize", handleResize);
+
+    return () => {
+      chart.unsubscribeCrosshairMove(handleMove);
+      window.removeEventListener("resize", handleResize);
+      tooltip.remove();
+
+      if (chartRef.current === chart) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+      }
+    };
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   useEffect(() => {
     if (!fromCoin || !toCoin) return;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(build);
+
+    let cleanup: (() => void) | undefined;
+    let raf1: number | undefined;
+    let raf2: number | undefined;
+
+    const run = () => {
+      build().then((fn) => {
+        cleanup = fn;
+      });
+    };
+
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(run);
     });
+
+    return () => {
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+      if (cleanup) cleanup();
+    };
   }, [fromCoin, toCoin, range, build]);
 
 
