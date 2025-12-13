@@ -75,6 +75,7 @@ export default function Page() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
@@ -215,6 +216,9 @@ export default function Page() {
   // ✅ CHART BUILDER (CURRENT PRICE LABEL + TOOLTIP ABOVE CURSOR)
   // ------------------------------------------------------------
   const build = useCallback(async () => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+
     if (!fromCoin || !toCoin) return;
 
     const container = chartContainerRef.current;
@@ -343,6 +347,23 @@ export default function Page() {
     tooltip.style.fontSize = "13px";
     container.appendChild(tooltip);
 
+    const hoverBox = document.createElement("div");
+    hoverBox.className = "cg-hover-box";
+    hoverBox.style.position = "absolute";
+    hoverBox.style.pointerEvents = "none";
+    hoverBox.style.visibility = "hidden";
+    hoverBox.style.zIndex = "11";
+    hoverBox.style.padding = "10px 12px";
+    hoverBox.style.borderRadius = "10px";
+    hoverBox.style.background = isDark ? "#0f172a" : "#f8fafc";
+    hoverBox.style.color = isDark ? "#e2e8f0" : "#0f172a";
+    hoverBox.style.border = isDark
+      ? "1px solid rgba(148,163,184,0.35)"
+      : "1px solid rgba(148,163,184,0.55)";
+    hoverBox.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
+    hoverBox.style.fontSize = "13px";
+    container.appendChild(hoverBox);
+
     // IMPORTANT: in LC v4, param.seriesPrices is a Map
     const handleMove = (param: any) => {
       if (!param || !param.time || !param.point || !param.seriesPrices) {
@@ -353,6 +374,7 @@ export default function Page() {
       const price = param.seriesPrices.get(series);
       if (price === undefined) {
         tooltip.style.visibility = "hidden";
+        hoverBox.style.visibility = "hidden";
         return;
       }
 
@@ -385,6 +407,37 @@ export default function Page() {
       )}px`;
       tooltip.style.top = `${Math.max(y - h - 14, 8)}px`;
       tooltip.style.visibility = "visible";
+
+      hoverBox.innerHTML = `
+        <div style="font-weight:700; font-size:14px; margin-bottom:4px;">
+          ${fromCoin?.symbol ?? ""}/${toCoin?.symbol ?? ""}
+        </div>
+        <div style="font-size:16px; font-weight:700;">
+          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+        </div>
+        <div style="opacity:0.75; margin-top:4px;">
+          ${d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+          ·
+          ${d.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          })}
+        </div>
+      `;
+
+      const hbW = hoverBox.clientWidth;
+      const hbH = hoverBox.clientHeight;
+      hoverBox.style.left = `${Math.min(
+        Math.max(x - hbW / 2, 8),
+        container.clientWidth - hbW - 8
+      )}px`;
+      hoverBox.style.top = `${Math.max(y - hbH - 12, 8)}px`;
+      hoverBox.style.visibility = "visible";
     };
 
     chart.subscribeCrosshairMove(handleMove);
@@ -394,6 +447,19 @@ export default function Page() {
       chart.resize(container.clientWidth, 390);
     };
     window.addEventListener("resize", handleResize);
+
+    cleanupRef.current = () => {
+      chart.unsubscribeCrosshairMove(handleMove);
+      window.removeEventListener("resize", handleResize);
+      tooltip.remove();
+      hoverBox.remove();
+
+      if (chartRef.current === chart) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+      }
+    };
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   useEffect(() => {
@@ -401,6 +467,10 @@ export default function Page() {
     requestAnimationFrame(() => {
       requestAnimationFrame(build);
     });
+    return () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
   }, [fromCoin, toCoin, range, build]);
 
 
