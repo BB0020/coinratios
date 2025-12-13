@@ -1,13 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
-import {
-  createChart,
-  type UTCTimestamp,
-  type ISeriesApi,
-  type LineData,
-  type Time,
-} from "lightweight-charts";
+import { createChart, type UTCTimestamp } from "lightweight-charts";
 import ThemeToggle from "./ThemeToggle";
 
 // ------------------------------------------------------------
@@ -60,12 +54,13 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
-// PAGE
+// PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
   const [allCoins, setAllCoins] = useState<Coin[]>([]);
   const [fromCoin, setFromCoin] = useState<Coin | null>(null);
   const [toCoin, setToCoin] = useState<Coin | null>(null);
+
   const [amount, setAmount] = useState("1");
   const [range, setRange] = useState("24H");
   const [result, setResult] = useState<number | null>(null);
@@ -75,32 +70,11 @@ export default function Page() {
   const [toSearch, setToSearch] = useState("");
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
-  const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<any>(null);
+  const seriesRef = useRef<any>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
-
-  // ------------------------------------------------------------
-  // TOOLTIP ELEMENT
-  // ------------------------------------------------------------
-  function createTooltipElement(): HTMLDivElement {
-    const el = document.createElement("div");
-    el.style.position = "absolute";
-    el.style.zIndex = "9999";
-    el.style.pointerEvents = "none";
-    el.style.visibility = "hidden";
-    el.style.padding = "12px 16px";
-    el.style.borderRadius = "12px";
-    el.style.background = "rgba(255,255,255,0.98)";
-    el.style.boxShadow = "0 6px 20px rgba(0,0,0,0.15)";
-    el.style.fontSize = "13px";
-    el.style.fontWeight = "500";
-    el.style.color = "#111";
-    el.style.whiteSpace = "nowrap";
-    return el;
-  }
 
   // ------------------------------------------------------------
   // LOAD COINS
@@ -109,7 +83,9 @@ export default function Page() {
     async function loadCoins() {
       const r = await fetch("/api/coins");
       const d = await r.json();
-      const final = [USD, ...(d.coins ?? []), ...FIAT_LIST];
+
+      const cryptoList = d.coins ?? [];
+      const final = [USD, ...cryptoList, ...FIAT_LIST];
       setAllCoins(final);
 
       const btc = final.find((c) => c.id === "bitcoin");
@@ -120,13 +96,70 @@ export default function Page() {
   }, []);
 
   // ------------------------------------------------------------
+  // FILTER COINS
+  // ------------------------------------------------------------
+  const filteredCoins = useCallback(
+    (q: string) => {
+      const s = q.toLowerCase();
+      return allCoins.filter(
+        (c) =>
+          c.symbol.toLowerCase().includes(s) ||
+          c.name.toLowerCase().includes(s)
+      );
+    },
+    [allCoins]
+  );
+
+  // ------------------------------------------------------------
+  // REALTIME PRICE
+  // ------------------------------------------------------------
+  const getRealtime = useCallback(async (coin: Coin) => {
+    const key = coin.id;
+    if (realtimeCache.current[key]) return realtimeCache.current[key];
+
+    const r = await fetch(`/api/price?base=${coin.id}&quote=usd`);
+    const j = await r.json();
+    const price = typeof j.price === "number" ? j.price : 0;
+
+    realtimeCache.current[key] = price;
+    return price;
+  }, []);
+
+  // ------------------------------------------------------------
+  // COMPUTE RESULT
+  // ------------------------------------------------------------
+  useEffect(() => {
+    async function compute() {
+      if (!fromCoin || !toCoin) return;
+
+      const amt = Number(amount);
+      if (amt <= 0) return setResult(null);
+
+      const [a, b] = await Promise.all([
+        getRealtime(fromCoin),
+        getRealtime(toCoin),
+      ]);
+
+      setResult((a / b) * amt);
+    }
+
+    const t = setTimeout(compute, 100);
+    return () => clearTimeout(t);
+  }, [amount, fromCoin, toCoin, getRealtime]);
+
+  // ------------------------------------------------------------
   // RANGE → DAYS
   // ------------------------------------------------------------
   const rangeToDays = (r: string) =>
-    r === "24H" ? 1 : r === "7D" ? 7 : r === "1M" ? 30 : r === "3M" ? 90 : r === "6M" ? 180 : 365;
+    r === "24H" ? 1 :
+    r === "7D"  ? 7 :
+    r === "1M"  ? 30 :
+    r === "3M"  ? 90 :
+    r === "6M"  ? 180 :
+                  365;
 
   // ------------------------------------------------------------
-  // HISTORY
+  // RAW HISTORY
   // ------------------------------------------------------------
   const getHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
     const key = `${base.id}-${quote.id}-${days}`;
@@ -136,73 +169,142 @@ export default function Page() {
     const d = await r.json();
 
     const cleaned = (d.history ?? [])
-      .filter((p: any) => Number.isFinite(p.value))
-      .sort((a: any, b: any) => a.time - b.time);
+      .filter((p: HistoryPoint) => Number.isFinite(p.value))
+      .sort((a: HistoryPoint, b: HistoryPoint) => a.time - b.time);
 
     historyCache.current[key] = cleaned;
     return cleaned;
   }, []);
 
   // ------------------------------------------------------------
-  // BUILD CHART
+  // NORMALIZED HISTORY
+  // ------------------------------------------------------------
+  const getNormalizedHistory = useCallback(async (base: Coin, quote: Coin, days: number) => {
+    let forwardBase = base;
+    let forwardQuote = quote;
+    let invert = false;
+
+    if (base.type === "fiat") {
+      forwardBase = quote;
+      forwardQuote = base;
+      invert = true;
+    }
+
+    const hist = await getHistory(forwardBase, forwardQuote, days);
+    if (!invert) return hist;
+
+    return hist.map((p: HistoryPoint) => ({
+      time: p.time,
+      value: p.value ? 1 / p.value : 0,
+    }));
+  }, [getHistory]);
+
+  // ------------------------------------------------------------
+  // CHART BUILDER + TOOLTIP ABOVE CURSOR
   // ------------------------------------------------------------
   const build = useCallback(async () => {
     if (!fromCoin || !toCoin) return;
+
     const container = chartContainerRef.current;
     if (!container) return;
 
-    const hist = await getHistory(fromCoin, toCoin, rangeToDays(range));
+    const hist = await getNormalizedHistory(fromCoin, toCoin, rangeToDays(range));
     if (!hist.length) return;
 
-    chartRef.current?.remove();
-    chartRef.current = null;
-    seriesRef.current = null;
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    }
+
+    const oldTooltip = container.querySelector(".cg-tooltip");
+    if (oldTooltip) oldTooltip.remove();
+
+    const isDark = document.documentElement.classList.contains("dark");
 
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 400,
-      layout: { background: { color: "transparent" }, textColor: "#555" },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: true },
-      crosshair: { mode: 1, vertLine: { width: 1, color: "rgba(0,0,0,0.25)" }, horzLine: { visible: false } },
+      height: 390,
+      layout: {
+        background: { color: "transparent" },
+        textColor: isDark ? "#e5e7eb" : "#374151",
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { visible: false },
+      },
+      rightPriceScale: {
+        borderVisible: false,
+      },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (t: UTCTimestamp) => {
+          const d = new Date(t * 1000);
+          return range === "24H"
+            ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+            : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        },
+      },
+      crosshair: {
+        mode: 2,
+        vertLine: { width: 1, color: isDark ? "#94a3b8" : "#cbd5e1" },
+        horzLine: { visible: false },
+      },
+    });
+
+    const series = chart.addLineSeries({
+      lineWidth: 2,
+      color: isDark ? "#4ea1f7" : "#3b82f6",
     });
 
     chartRef.current = chart;
-
-    const series = chart.addLineSeries({ color: "#3b82f6", lineWidth: 2 });
-    series.setData(hist.map((p: HistoryPoint) => ({ time: p.time as UTCTimestamp, value: p.value })));
     seriesRef.current = series;
+
+    series.setData(
+      hist.map((p: HistoryPoint) => ({
+        time: p.time as UTCTimestamp,
+        value: p.value,
+      }))
+    );
 
     chart.timeScale().fitContent();
 
-    if (!tooltipRef.current) {
-      tooltipRef.current = createTooltipElement();
-      container.appendChild(tooltipRef.current);
-    }
+    const tooltip = document.createElement("div");
+    tooltip.className = "cg-tooltip";
+    tooltip.style.position = "absolute";
+    tooltip.style.pointerEvents = "none";
+    tooltip.style.visibility = "hidden";
+    tooltip.style.padding = "10px 14px";
+    tooltip.style.borderRadius = "10px";
+    tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
+    tooltip.style.color = isDark ? "#f9fafb" : "#111";
+    tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
+    tooltip.style.fontSize = "13px";
+    container.appendChild(tooltip);
 
-    const tooltip = tooltipRef.current;
-
-    chart.subscribeCrosshairMove(param => {
-      if (!param.time || !param.point || !seriesRef.current) {
+    chart.subscribeCrosshairMove((param: any) => {
+      if (!param.time || !param.point || !param.seriesPrices) {
         tooltip.style.visibility = "hidden";
         return;
       }
 
-      const data = param.seriesData.get(seriesRef.current) as LineData<Time> | undefined;
-      if (!data) {
+      const price = param.seriesPrices.get(series);
+      if (price === undefined) {
         tooltip.style.visibility = "hidden";
         return;
       }
 
-      const ts = new Date((param.time as number) * 1000);
+      const d = new Date((param.time as number) * 1000);
+
       tooltip.innerHTML = `
-        <div style="font-size:12px; opacity:.8; margin-bottom:6px;">
-          ${ts.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} — 
-          ${ts.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true })}
+        <div style="opacity:0.75; margin-bottom:6px;">
+          ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+          — ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", hour12: true })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          ${data.value.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          ${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
         </div>
       `;
 
@@ -211,13 +313,14 @@ export default function Page() {
       const h = tooltip.clientHeight;
 
       tooltip.style.left = `${Math.min(Math.max(x - w / 2, 0), container.clientWidth - w)}px`;
-      tooltip.style.top = `${y - h - 12}px`;
+      tooltip.style.top = `${Math.max(y - h - 14, 8)}px`;
       tooltip.style.visibility = "visible";
     });
-  }, [fromCoin, toCoin, range, getHistory]);
+  }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   useEffect(() => {
-    if (fromCoin && toCoin) requestAnimationFrame(build);
+    if (!fromCoin || !toCoin) return;
+    requestAnimationFrame(() => requestAnimationFrame(build));
   }, [fromCoin, toCoin, range, build]);
 
   // ------------------------------------------------------------
@@ -229,16 +332,32 @@ export default function Page() {
         <ThemeToggle />
       </div>
 
-      <div ref={chartContainerRef} style={{
-        width: "100%",
-        height: "400px",
-        marginTop: "35px",
-        borderRadius: "14px",
-        border: "1px solid var(--card-border)",
-        background: "var(--card-bg)",
-        position: "relative",
-        overflow: "visible",
-      }} />
+      {/* RESULT */}
+      {result && fromCoin && toCoin && (
+        <div style={{ textAlign: "center", marginTop: "40px" }}>
+          <div style={{ fontSize: "22px", opacity: 0.65 }}>
+            1 {fromCoin.symbol} → {toCoin.symbol}
+          </div>
+          <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
+            {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+          </div>
+        </div>
+      )}
+
+      {/* CHART */}
+      <div
+        ref={chartContainerRef}
+        style={{
+          width: "100%",
+          height: "400px",
+          marginTop: "35px",
+          borderRadius: "14px",
+          border: "1px solid var(--card-border)",
+          background: "var(--card-bg)",
+          position: "relative",
+          overflow: "visible",
+        }}
+      />
     </div>
   );
 }
