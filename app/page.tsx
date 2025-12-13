@@ -364,15 +364,17 @@ export default function Page() {
     hoverBox.style.fontSize = "13px";
     container.appendChild(hoverBox);
 
-    // IMPORTANT: in LC v4, param.seriesPrices is a Map
+    // IMPORTANT: in LC v4, param.seriesData is a Map
     const handleMove = (param: any) => {
-      if (!param || !param.time || !param.point || !param.seriesPrices) {
+      if (!param || !param.time || !param.point || !param.seriesData) {
         tooltip.style.visibility = "hidden";
+        hoverBox.style.visibility = "hidden";
         return;
       }
 
-      const price = param.seriesPrices.get(series);
-      if (price === undefined) {
+      const data = param.seriesData.get(series);
+      const price = data?.value ?? data;
+      if (price === undefined || price === null) {
         tooltip.style.visibility = "hidden";
         hoverBox.style.visibility = "hidden";
         return;
