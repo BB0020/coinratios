@@ -93,6 +93,7 @@ export default function Page() {
   // CLOSE DROPDOWNS ON OUTSIDE CLICK
   // ------------------------------------------------------------
   useEffect(() => {
+    // Keep dropdown state in sync with clicks that happen anywhere on the page
     const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (!openDropdown) return;
 
