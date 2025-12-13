@@ -34,6 +34,51 @@ const USD: Coin = {
   type: "fiat",
 };
 
+const formatCgDecimal = (value: number) => {
+  if (!Number.isFinite(value)) return "-";
+
+  const abs = Math.abs(value);
+  if (abs >= 1) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  if (abs >= 0.1) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    });
+  }
+
+  if (abs >= 0.01) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 5,
+      maximumFractionDigits: 5,
+    });
+  }
+
+  if (abs >= 0.001) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 6,
+      maximumFractionDigits: 6,
+    });
+  }
+
+  if (abs >= 0.0001) {
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 7,
+      maximumFractionDigits: 7,
+    });
+  }
+
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 8,
+    maximumFractionDigits: 8,
+  });
+};
+
 const FIAT_LIST: Coin[] = [
   { id: "AUD", symbol: "AUD", name: "Australian Dollar", image: "https://flagcdn.com/au.svg", type: "fiat" },
   { id: "BRL", symbol: "BRL", name: "Brazilian Real", image: "https://flagcdn.com/br.svg", type: "fiat" },
@@ -364,19 +409,47 @@ export default function Page() {
     hoverBox.style.fontSize = "13px";
     container.appendChild(hoverBox);
 
+    const crosshairBar = document.createElement("div");
+    crosshairBar.style.position = "absolute";
+    crosshairBar.style.pointerEvents = "none";
+    crosshairBar.style.visibility = "hidden";
+    crosshairBar.style.top = "0";
+    crosshairBar.style.width = "1px";
+    crosshairBar.style.height = "100%";
+    crosshairBar.style.background = isDark ? "#64748b" : "#cbd5e1";
+    crosshairBar.style.zIndex = "9";
+    container.appendChild(crosshairBar);
+
+    const priceDot = document.createElement("div");
+    priceDot.style.position = "absolute";
+    priceDot.style.pointerEvents = "none";
+    priceDot.style.visibility = "hidden";
+    priceDot.style.width = "10px";
+    priceDot.style.height = "10px";
+    priceDot.style.borderRadius = "50%";
+    priceDot.style.background = isDark ? "#4ea1f7" : "#3b82f6";
+    priceDot.style.boxShadow = "0 0 0 2px rgba(255,255,255,0.9)";
+    priceDot.style.zIndex = "12";
+    container.appendChild(priceDot);
+
     // IMPORTANT: in LC v4, param.seriesData is a Map
+    const hideHoverUi = () => {
+      tooltip.style.visibility = "hidden";
+      hoverBox.style.visibility = "hidden";
+      crosshairBar.style.visibility = "hidden";
+      priceDot.style.visibility = "hidden";
+    };
+
     const handleMove = (param: any) => {
       if (!param || !param.time || !param.point || !param.seriesData) {
-        tooltip.style.visibility = "hidden";
-        hoverBox.style.visibility = "hidden";
+        hideHoverUi();
         return;
       }
 
       const data = param.seriesData.get(series);
       const price = data?.value ?? data;
       if (price === undefined || price === null) {
-        tooltip.style.visibility = "hidden";
-        hoverBox.style.visibility = "hidden";
+        hideHoverUi();
         return;
       }
 
@@ -395,7 +468,7 @@ export default function Page() {
           })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          $${formatCgDecimal(Number(price))}
         </div>
       `;
 
@@ -415,7 +488,7 @@ export default function Page() {
           ${fromCoin?.symbol ?? ""}/${toCoin?.symbol ?? ""}
         </div>
         <div style="font-size:16px; font-weight:700;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          $${formatCgDecimal(Number(price))}
         </div>
         <div style="opacity:0.75; margin-top:4px;">
           ${d.toLocaleDateString(undefined, {
@@ -440,6 +513,13 @@ export default function Page() {
       )}px`;
       hoverBox.style.top = `${Math.max(y - hbH - 12, 8)}px`;
       hoverBox.style.visibility = "visible";
+
+      crosshairBar.style.left = `${x}px`;
+      crosshairBar.style.visibility = "visible";
+
+      priceDot.style.left = `${x - 5}px`;
+      priceDot.style.top = `${y - 5}px`;
+      priceDot.style.visibility = "visible";
     };
 
     chart.subscribeCrosshairMove(handleMove);
@@ -455,6 +535,8 @@ export default function Page() {
       window.removeEventListener("resize", handleResize);
       tooltip.remove();
       hoverBox.remove();
+      crosshairBar.remove();
+      priceDot.remove();
 
       if (chartRef.current === chart) {
         chartRef.current.remove();
@@ -616,19 +698,19 @@ export default function Page() {
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+          {formatCgDecimal(result)} {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} =
           {" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatCgDecimal(baseRate)}
           {" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} =
           {" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatCgDecimal(1 / baseRate)}
           {" "}
           {fromCoin.symbol}
         </div>
