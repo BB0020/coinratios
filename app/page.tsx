@@ -212,207 +212,196 @@ export default function Page() {
   }, [getHistory]);
 
   // ------------------------------------------------------------
-// CHART BUILDER + EFFECT + TOOLTIP (SINGLE SAFE BLOCK)
-// ------------------------------------------------------------
-const build = useCallback(async () => {
-  if (!fromCoin || !toCoin) return;
+  // ✅ FINAL COINGECKO-STYLE CHART BUILDER (WORKING)
+  // ------------------------------------------------------------
+  const build = useCallback(async () => {
+    if (!fromCoin || !toCoin) return;
 
-  const container = chartContainerRef.current;
-  if (!container) return;
+    const container = chartContainerRef.current;
+    if (!container) return;
 
-  const hist = await getNormalizedHistory(
-    fromCoin,
-    toCoin,
-    rangeToDays(range)
-  );
-  if (!hist.length) return;
+    const hist = await getNormalizedHistory(
+      fromCoin,
+      toCoin,
+      rangeToDays(range)
+    );
+    if (!hist.length) return;
 
-  // Remove previous chart
-  if (chartRef.current) {
-    chartRef.current.remove();
-    chartRef.current = null;
-    seriesRef.current = null;
-  }
+    // Cleanup
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    }
 
-  const isDark = document.documentElement.classList.contains("dark");
+    const isDark = document.documentElement.classList.contains("dark");
 
-  const chart = createChart(container, {
-    width: container.clientWidth,
-    height: 390,
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height: 390,
 
-    layout: {
-      background: { color: "transparent" },
-      textColor: isDark ? "#e5e7eb" : "#374151",
-    },
+      layout: {
+        background: { color: "transparent" },
+        textColor: isDark ? "#e5e7eb" : "#374151",
+      },
 
-    grid: {
-      vertLines: { visible: false },
-      horzLines: { visible: false },
-    },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { visible: false },
+      },
 
-    rightPriceScale: {
-      borderVisible: false,
-      scaleMargins: { top: 0.2, bottom: 0.15 },
-    },
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.2, bottom: 0.15 },
+      },
 
-    timeScale: {
-      borderVisible: false,
-      timeVisible: true,
-      secondsVisible: false,
-      tickMarkFormatter: (time: UTCTimestamp) => {
-        const d = new Date(time * 1000);
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: false,
 
-        if (range === "24H") {
-          return d.toLocaleTimeString(undefined, {
+        // ✅ FIXED SPACING (CG-like)
+        barSpacing: 8,
+        rightOffset: 6,
+
+        tickMarkFormatter: (time: UTCTimestamp) => {
+          const d = new Date(time * 1000);
+
+          if (range === "24H") {
+            return d.toLocaleTimeString(undefined, {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            });
+          }
+
+          return d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
+        },
+      },
+
+      // ✅ MAGNET SNAP (REQUIRED FOR TOOLTIP)
+      crosshair: {
+        mode: 2, // 🔥 magnet
+
+        vertLine: {
+          visible: true,
+          labelVisible: false,
+          width: 1,
+          style: 2,
+          color: isDark ? "#94a3b8" : "#cbd5e1",
+        },
+
+        // ❌ DISABLE HORIZONTAL LINE COMPLETELY
+        horzLine: {
+          visible: false,
+          labelVisible: false,
+        },
+      },
+    });
+
+    const series = chart.addAreaSeries({
+      lineWidth: 3,
+      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
+      topColor: isDark
+        ? "rgba(78,161,247,0.45)"
+        : "rgba(59,130,246,0.45)",
+      bottomColor: "rgba(59,130,246,0.05)",
+
+      lastValueVisible: false, // ❌ no black box
+      priceLineVisible: false,
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    series.setData(
+      hist.map((p: HistoryPoint) => ({
+        time: p.time as UTCTimestamp,
+        value: p.value,
+      }))
+    );
+
+    chart.timeScale().fitContent();
+
+    // ------------------------------------------------------------
+    // ✅ FLOATING TOOLTIP (ABOVE CURSOR)
+    // ------------------------------------------------------------
+    let tooltip = container.querySelector(".cg-tooltip") as HTMLDivElement | null;
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.className = "cg-tooltip";
+      tooltip.style.position = "absolute";
+      tooltip.style.pointerEvents = "none";
+      tooltip.style.visibility = "hidden";
+      tooltip.style.zIndex = "10";
+      tooltip.style.padding = "10px 14px";
+      tooltip.style.borderRadius = "10px";
+      tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
+      tooltip.style.color = isDark ? "#f9fafb" : "#111";
+      tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
+      tooltip.style.fontSize = "13px";
+      container.appendChild(tooltip);
+    }
+
+    chart.subscribeCrosshairMove((param: any) => {
+      if (!param.time || !param.point || !param.seriesPrices) {
+        tooltip!.style.visibility = "hidden";
+        return;
+      }
+
+      // ✅ TS + LC v4 SAFE
+      const prices = param.seriesPrices as Record<string, number>;
+      const price = Object.values(prices)[0];
+      if (price === undefined) {
+        tooltip!.style.visibility = "hidden";
+        return;
+      }
+
+      const d = new Date((param.time as number) * 1000);
+
+      tooltip!.innerHTML = `
+        <div style="opacity:0.75; margin-bottom:6px;">
+          ${d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })} — ${d.toLocaleTimeString(undefined, {
             hour: "numeric",
             minute: "2-digit",
             hour12: true,
-          });
-        }
+          })}
+        </div>
+        <div style="font-size:15px; font-weight:600;">
+          ${price.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+        </div>
+      `;
 
-        return d.toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-        });
-      },
-    },
+      const { x, y } = param.point;
+      const w = tooltip!.clientWidth;
+      const h = tooltip!.clientHeight;
 
-    crosshair: {
-      mode: 1, // normal (CoinGecko-style)
-
-      vertLine: {
-        visible: true,
-        labelVisible: false,
-        width: 1,
-        style: 2,
-        color: isDark ? "#94a3b8" : "#cbd5e1",
-      },
-
-      horzLine: {
-        visible: true,
-
-        // ❌ THIS is the black box you see
-        labelVisible: false,
-
-        width: 1,
-        style: 0,
-        color: isDark ? "#94a3b8" : "#cbd5e1",
-      },
-    },
-
-  });
-
-  const series = chart.addAreaSeries({
-    lineWidth: 3,
-    lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-    topColor: isDark
-      ? "rgba(78,161,247,0.45)"
-      : "rgba(59,130,246,0.45)",
-    bottomColor: "rgba(59,130,246,0.05)",
-    lastValueVisible: true,
-    priceLineVisible: false,
-  });
-
-  chartRef.current = chart;
-  seriesRef.current = series;
-
-  // IMPORTANT: use RAW UTC timestamps
-  series.setData(
-    hist.map((p: HistoryPoint) => ({
-      time: p.time as UTCTimestamp,
-      value: p.value,
-    }))
-  );
-
-  chart.timeScale().fitContent();
-
-  // ------------------------------
-  // TOOLTIP (LOCAL TIME, ABOVE CURSOR)
-  // ------------------------------
-  let tooltip = container.querySelector(".cg-tooltip") as HTMLDivElement | null;
-  if (!tooltip) {
-    tooltip = document.createElement("div");
-    tooltip.className = "cg-tooltip";
-    tooltip.style.position = "absolute";
-    tooltip.style.pointerEvents = "none";
-    tooltip.style.visibility = "hidden";
-    tooltip.style.zIndex = "10";
-    tooltip.style.padding = "10px 14px";
-    tooltip.style.borderRadius = "10px";
-    tooltip.style.background = isDark ? "#1f2937" : "#ffffff";
-    tooltip.style.color = isDark ? "#f9fafb" : "#111";
-    tooltip.style.boxShadow = "0 4px 14px rgba(0,0,0,0.15)";
-    tooltip.style.fontSize = "13px";
-    container.appendChild(tooltip);
-  }
-
-
-const handleMove = (param: any) => {
-  if (!param || !param.time || !param.point) {
-    tooltip!.style.visibility = "hidden";
-    return;
-  }
-
-  // ✅ LC v4 SAFE PRICE ACCESS
-const prices = param.seriesPrices as Record<string, number>;
-const price = Object.values(prices)[0];
-  if (price === undefined) {
-    tooltip!.style.visibility = "hidden";
-    return;
-  }
-
-  const d = new Date((param.time as number) * 1000);
-
-  tooltip!.innerHTML = `
-    <div style="opacity:0.75; margin-bottom:6px;">
-      ${d.toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })} — ${d.toLocaleTimeString(undefined, {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      })}
-    </div>
-    <div style="font-size:15px; font-weight:600;">
-      ${Number(price).toLocaleString(undefined, {
-        maximumFractionDigits: 8,
-      })}
-    </div>
-  `;
-
-  const { x, y } = param.point;
-  const w = tooltip!.clientWidth;
-  const h = tooltip!.clientHeight;
-
-  tooltip!.style.left = `${Math.min(
-    Math.max(x - w / 2, 0),
-    container.clientWidth - w
-  )}px`;
-
-  tooltip!.style.top = `${y - h - 14}px`;
-  tooltip!.style.visibility = "visible";
-};
-  chart.subscribeCrosshairMove(handleMove);
-
-  const handleResize = () => {
-    chart.resize(container.clientWidth, 390);
-  };
-  window.addEventListener("resize", handleResize);
-}, [fromCoin, toCoin, range, getNormalizedHistory]);
-
-useEffect(() => {
-  if (!fromCoin || !toCoin) return;
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      build();
+      tooltip!.style.left = `${Math.min(
+        Math.max(x - w / 2, 0),
+        container.clientWidth - w
+      )}px`;
+      tooltip!.style.top = `${y - h - 14}px`;
+      tooltip!.style.visibility = "visible";
     });
-  });
-}, [fromCoin, toCoin, range, build]);
 
+    window.addEventListener("resize", () => {
+      chart.resize(container.clientWidth, 390);
+    });
+  }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
+  useEffect(() => {
+    if (!fromCoin || !toCoin) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(build);
+    });
+  }, [fromCoin, toCoin, range, build]);
 
 
 
