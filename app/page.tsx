@@ -57,6 +57,38 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
+// NUMBER FORMATTERS (COINGECKO-STYLE PRECISION)
+// ------------------------------------------------------------
+const getFiatDigits = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 1) return 2; // fiat prices stay compact
+  if (abs >= 0.1) return 3;
+  if (abs >= 0.01) return 4;
+  if (abs >= 0.001) return 5;
+  return 6;
+};
+
+const getCryptoDigits = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 100000) return 2;
+  if (abs >= 1000) return 3;
+  if (abs >= 1) return 4;
+  if (abs >= 0.1) return 5;
+  if (abs >= 0.01) return 6;
+  if (abs >= 0.001) return 7;
+  return 8;
+};
+
+const formatNumber = (value: number, quote?: Coin | null) => {
+  if (!Number.isFinite(value)) return "-";
+
+  const maximumFractionDigits =
+    quote?.type === "fiat" ? getFiatDigits(value) : getCryptoDigits(value);
+
+  return value.toLocaleString(undefined, { maximumFractionDigits });
+};
+
+// ------------------------------------------------------------
 // PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
@@ -93,7 +125,6 @@ export default function Page() {
   // CLOSE DROPDOWNS ON OUTSIDE CLICK
   // ------------------------------------------------------------
   useEffect(() => {
-    // Keep dropdown state in sync with clicks that happen anywhere on the page
     const handleOutside = (e: MouseEvent | TouchEvent) => {
       if (!openDropdown) return;
 
@@ -439,6 +470,8 @@ export default function Page() {
 
       const d = new Date((param.time as number) * 1000);
 
+      const formattedPrice = formatNumber(Number(price), toCoin);
+
       tooltip.innerHTML = `
         <div style="opacity:0.75; margin-bottom:6px;">
           ${d.toLocaleDateString(undefined, {
@@ -452,7 +485,7 @@ export default function Page() {
           })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          ${formattedPrice} ${toCoin?.symbol ?? ""}
         </div>
       `;
 
@@ -472,7 +505,7 @@ export default function Page() {
           ${fromCoin?.symbol ?? ""}/${toCoin?.symbol ?? ""}
         </div>
         <div style="font-size:16px; font-weight:700;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          ${formattedPrice} ${toCoin?.symbol ?? ""}
         </div>
         <div style="opacity:0.75; margin-top:4px;">
           ${d.toLocaleDateString(undefined, {
@@ -674,30 +707,33 @@ export default function Page() {
   // RESULT DISPLAY
 // ------------------------------------------------------------
   const renderResult = () => {
-    if (!result || !fromCoin || !toCoin) return null;
+    if (result === null || !fromCoin || !toCoin) return null;
 
-    const baseRate = result / Number(amount);
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return null;
+
+    const baseRate = result / amt;
 
     return (
       <div style={{ textAlign: "center", marginTop: "40px" }}>
         <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
+          {formatNumber(amt, fromCoin)} {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+          {formatNumber(result, toCoin)} {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} =
           {" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatNumber(baseRate, toCoin)}
           {" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} =
           {" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatNumber(1 / baseRate, fromCoin)}
           {" "}
           {fromCoin.symbol}
         </div>
