@@ -377,11 +377,20 @@ export default function Page() {
       },
     });
 
-    const series = chart.addAreaSeries({
+    const openPrice = hist[0].value ?? 0;
+
+    const series = chart.addBaselineSeries({
+      baseValue: { type: "price", price: openPrice },
+
       lineWidth: 3,
-      lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-      topColor: isDark ? "rgba(78,161,247,0.45)" : "rgba(59,130,246,0.45)",
-      bottomColor: "rgba(59,130,246,0.05)",
+
+      topLineColor: "#22c55e",
+      topFillColor1: "rgba(34,197,94,0.32)",
+      topFillColor2: "rgba(34,197,94,0.08)",
+
+      bottomLineColor: "#ef4444",
+      bottomFillColor1: "rgba(239,68,68,0.08)",
+      bottomFillColor2: "rgba(239,68,68,0.28)",
 
       // ✅ bring back CURRENT PRICE LABEL on right axis
       lastValueVisible: true,
@@ -401,6 +410,51 @@ export default function Page() {
     );
 
     chart.timeScale().fitContent();
+
+    series.createPriceLine({
+      price: openPrice,
+      color: isDark ? "#94a3b8" : "#9ca3af",
+      lineWidth: 1,
+      lineStyle: 2,
+      axisLabelVisible: false,
+      title: "Open",
+    });
+
+    const openLabel = document.createElement("div");
+    openLabel.className = "cg-open-label";
+    openLabel.style.position = "absolute";
+    openLabel.style.left = "12px";
+    openLabel.style.padding = "8px 10px";
+    openLabel.style.borderRadius = "8px";
+    openLabel.style.fontSize = "13px";
+    openLabel.style.fontWeight = "700";
+    openLabel.style.pointerEvents = "none";
+    openLabel.style.background = isDark
+      ? "rgba(15,23,42,0.86)"
+      : "rgba(255,255,255,0.94)";
+    openLabel.style.color = isDark ? "#e2e8f0" : "#0f172a";
+    openLabel.style.border = isDark
+      ? "1px solid rgba(148,163,184,0.4)"
+      : "1px solid rgba(148,163,184,0.6)";
+    openLabel.style.boxShadow = "0 6px 18px rgba(0,0,0,0.12)";
+    openLabel.style.visibility = "hidden";
+    openLabel.textContent = `Open ${formatNumber(openPrice, toCoin)} ${
+      toCoin?.symbol ?? ""
+    }`;
+    container.appendChild(openLabel);
+
+    const updateOpenLabelPosition = () => {
+      const coord = series.priceToCoordinate(openPrice);
+      if (coord === null || coord === undefined) {
+        openLabel.style.visibility = "hidden";
+        return;
+      }
+
+      openLabel.style.top = `${coord - openLabel.clientHeight / 2}px`;
+      openLabel.style.visibility = "visible";
+    };
+
+    requestAnimationFrame(updateOpenLabelPosition);
 
     // ------------------------------------------------------------
     // ✅ TOOLTIP (ABOVE CURSOR, TIME + PRICE ONLY)
@@ -548,6 +602,7 @@ export default function Page() {
     // Resize
     const handleResize = () => {
       chart.resize(container.clientWidth, 390);
+      updateOpenLabelPosition();
     };
     window.addEventListener("resize", handleResize);
 
@@ -557,6 +612,7 @@ export default function Page() {
       tooltip.remove();
       hoverDot.remove();
       hoverBox.remove();
+      openLabel.remove();
 
       if (chartRef.current === chart) {
         chartRef.current.remove();
@@ -604,9 +660,28 @@ export default function Page() {
       });
 
       seriesRef.current.applyOptions({
-        lineColor: isDark ? "#4ea1f7" : "#3b82f6",
-        topColor: isDark ? "rgba(78,161,247,0.35)" : "rgba(59,130,246,0.35)",
+        topLineColor: "#22c55e",
+        topFillColor1: "rgba(34,197,94,0.32)",
+        topFillColor2: "rgba(34,197,94,0.08)",
+
+        bottomLineColor: "#ef4444",
+        bottomFillColor1: "rgba(239,68,68,0.08)",
+        bottomFillColor2: "rgba(239,68,68,0.28)",
       });
+
+      const openLabel = chartContainerRef.current?.querySelector(
+        ".cg-open-label"
+      ) as HTMLDivElement | null;
+
+      if (openLabel) {
+        openLabel.style.background = isDark
+          ? "rgba(15,23,42,0.86)"
+          : "rgba(255,255,255,0.94)";
+        openLabel.style.color = isDark ? "#e2e8f0" : "#0f172a";
+        openLabel.style.border = isDark
+          ? "1px solid rgba(148,163,184,0.4)"
+          : "1px solid rgba(148,163,184,0.6)";
+      }
     };
 
     window.addEventListener("theme-change", handler);
