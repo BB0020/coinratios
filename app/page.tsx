@@ -57,20 +57,33 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
-// NUMBER FORMATTER (COINGECKO-STYLE PRECISION)
+// NUMBER FORMATTERS (COINGECKO-STYLE PRECISION)
 // ------------------------------------------------------------
-const formatNumber = (value: number) => {
+const getFiatDigits = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 1) return 2; // fiat prices stay compact
+  if (abs >= 0.1) return 3;
+  if (abs >= 0.01) return 4;
+  if (abs >= 0.001) return 5;
+  return 6;
+};
+
+const getCryptoDigits = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 100000) return 2;
+  if (abs >= 1000) return 3;
+  if (abs >= 1) return 4;
+  if (abs >= 0.1) return 5;
+  if (abs >= 0.01) return 6;
+  if (abs >= 0.001) return 7;
+  return 8;
+};
+
+const formatNumber = (value: number, quote?: Coin | null) => {
   if (!Number.isFinite(value)) return "-";
 
-  const abs = Math.abs(value);
   const maximumFractionDigits =
-    abs >= 100000
-      ? 2
-      : abs >= 1
-        ? 4
-        : abs >= 0.01
-          ? 6
-          : 8;
+    quote?.type === "fiat" ? getFiatDigits(value) : getCryptoDigits(value);
 
   return value.toLocaleString(undefined, { maximumFractionDigits });
 };
@@ -457,7 +470,7 @@ export default function Page() {
 
       const d = new Date((param.time as number) * 1000);
 
-      const formattedPrice = formatNumber(Number(price));
+      const formattedPrice = formatNumber(Number(price), toCoin);
 
       tooltip.innerHTML = `
         <div style="opacity:0.75; margin-bottom:6px;">
@@ -704,23 +717,23 @@ export default function Page() {
     return (
       <div style={{ textAlign: "center", marginTop: "40px" }}>
         <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          {formatNumber(amt)} {fromCoin.symbol} → {toCoin.symbol}
+          {formatNumber(amt, fromCoin)} {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {formatNumber(result)} {toCoin.symbol}
+          {formatNumber(result, toCoin)} {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} =
           {" "}
-          {formatNumber(baseRate)}
+          {formatNumber(baseRate, toCoin)}
           {" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} =
           {" "}
-          {formatNumber(1 / baseRate)}
+          {formatNumber(1 / baseRate, fromCoin)}
           {" "}
           {fromCoin.symbol}
         </div>
