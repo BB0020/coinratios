@@ -433,19 +433,6 @@ export default function Page() {
     hoverDot.style.transform = "translate(-50%, -50%)";
     container.appendChild(hoverDot);
 
-    const hoverLine = document.createElement("div");
-    hoverLine.className = "cg-hover-line";
-    hoverLine.style.position = "absolute";
-    hoverLine.style.pointerEvents = "none";
-    hoverLine.style.visibility = "hidden";
-    hoverLine.style.width = "1.5px";
-    hoverLine.style.top = "0";
-    hoverLine.style.bottom = "0";
-    hoverLine.style.background = isDark ? "#4ea1f7" : "#3b82f6";
-    hoverLine.style.boxShadow = "0 0 0 1px rgba(59,130,246,0.2)";
-    hoverLine.style.transform = "translateX(-50%)";
-    container.appendChild(hoverLine);
-
     const hoverBox = document.createElement("div");
     hoverBox.className = "cg-hover-box";
     hoverBox.style.position = "absolute";
@@ -469,7 +456,6 @@ export default function Page() {
         tooltip.style.visibility = "hidden";
         hoverBox.style.visibility = "hidden";
         hoverDot.style.visibility = "hidden";
-        hoverLine.style.visibility = "hidden";
         return;
       }
 
@@ -479,7 +465,6 @@ export default function Page() {
         tooltip.style.visibility = "hidden";
         hoverBox.style.visibility = "hidden";
         hoverDot.style.visibility = "hidden";
-        hoverLine.style.visibility = "hidden";
         return;
       }
 
@@ -538,28 +523,23 @@ export default function Page() {
       `;
 
       const hbW = hoverBox.clientWidth;
+      const hbH = hoverBox.clientHeight;
+      hoverBox.style.left = `${Math.min(
+        Math.max(x - hbW / 2, 8),
+        container.clientWidth - hbW - 8
+      )}px`;
+      hoverBox.style.top = `${Math.max(y - hbH - 12, 8)}px`;
+      hoverBox.style.visibility = "visible";
+
       const xCoord = chart.timeScale().timeToCoordinate(param.time as UTCTimestamp);
       const yCoord = series.priceToCoordinate(price);
 
-      const clampedX = xCoord ?? x;
-
-      hoverBox.style.left = `${Math.min(
-        Math.max(clampedX - hbW / 2, 8),
-        container.clientWidth - hbW - 8
-      )}px`;
-      hoverBox.style.top = "12px";
-      hoverBox.style.visibility = "visible";
-
       if (xCoord === null || yCoord === null || xCoord === undefined || yCoord === undefined) {
         hoverDot.style.visibility = "hidden";
-        hoverLine.style.visibility = "hidden";
       } else {
         hoverDot.style.left = `${xCoord}px`;
         hoverDot.style.top = `${yCoord}px`;
         hoverDot.style.visibility = "visible";
-
-        hoverLine.style.left = `${xCoord}px`;
-        hoverLine.style.visibility = "visible";
       }
     };
 
@@ -576,7 +556,6 @@ export default function Page() {
       window.removeEventListener("resize", handleResize);
       tooltip.remove();
       hoverDot.remove();
-      hoverLine.remove();
       hoverBox.remove();
 
       if (chartRef.current === chart) {
