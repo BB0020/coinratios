@@ -57,6 +57,38 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
+// NUMBER FORMATTERS (COINGECKO-STYLE PRECISION)
+// ------------------------------------------------------------
+const getFiatDigits = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 1) return 2; // fiat prices stay compact
+  if (abs >= 0.1) return 3;
+  if (abs >= 0.01) return 4;
+  if (abs >= 0.001) return 5;
+  return 6;
+};
+
+const getCryptoDigits = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 100000) return 2;
+  if (abs >= 1000) return 3;
+  if (abs >= 1) return 4;
+  if (abs >= 0.1) return 5;
+  if (abs >= 0.01) return 6;
+  if (abs >= 0.001) return 7;
+  return 8;
+};
+
+const formatNumber = (value: number, quote?: Coin | null) => {
+  if (!Number.isFinite(value)) return "-";
+
+  const maximumFractionDigits =
+    quote?.type === "fiat" ? getFiatDigits(value) : getCryptoDigits(value);
+
+  return value.toLocaleString(undefined, { maximumFractionDigits });
+};
+
+// ------------------------------------------------------------
 // PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
@@ -72,9 +104,13 @@ export default function Page() {
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
 
+  const fromDropdownRef = useRef<HTMLDivElement | null>(null);
+  const toDropdownRef = useRef<HTMLDivElement | null>(null);
+
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
@@ -84,6 +120,43 @@ export default function Page() {
     (window as any).chartRef = chartRef;
     (window as any).seriesRef = seriesRef;
   }, []);
+
+  // ------------------------------------------------------------
+  // CLOSE DROPDOWNS ON OUTSIDE CLICK
+  // ------------------------------------------------------------
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (!openDropdown) return;
+
+      const target = e.target as Node | null;
+      if (!target) return;
+
+      if (
+        openDropdown === "from" &&
+        fromDropdownRef.current &&
+        !fromDropdownRef.current.contains(target)
+      ) {
+        setOpenDropdown(null);
+        setFromSearch("");
+      }
+
+      if (
+        openDropdown === "to" &&
+        toDropdownRef.current &&
+        !toDropdownRef.current.contains(target)
+      ) {
+        setOpenDropdown(null);
+        setToSearch("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [openDropdown]);
 
   // ------------------------------------------------------------
   // LOAD COINS
@@ -215,6 +288,9 @@ export default function Page() {
   // ✅ CHART BUILDER (CURRENT PRICE LABEL + TOOLTIP ABOVE CURSOR)
   // ------------------------------------------------------------
   const build = useCallback(async () => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+
     if (!fromCoin || !toCoin) return;
 
     const container = chartContainerRef.current;
@@ -343,20 +419,73 @@ export default function Page() {
     tooltip.style.fontSize = "13px";
     container.appendChild(tooltip);
 
-    // IMPORTANT: in LC v4, param.seriesPrices is a Map
+    const hoverDot = document.createElement("div");
+    hoverDot.className = "cg-hover-dot";
+    hoverDot.style.position = "absolute";
+    hoverDot.style.pointerEvents = "none";
+    hoverDot.style.visibility = "hidden";
+    hoverDot.style.width = "10px";
+    hoverDot.style.height = "10px";
+    hoverDot.style.borderRadius = "50%";
+    hoverDot.style.background = isDark ? "#4ea1f7" : "#3b82f6";
+    hoverDot.style.border = "2px solid #fff";
+    hoverDot.style.boxShadow = "0 0 0 2px rgba(59,130,246,0.35)";
+    hoverDot.style.transform = "translate(-50%, -50%)";
+    container.appendChild(hoverDot);
+
+    const hoverLine = document.createElement("div");
+    hoverLine.className = "cg-hover-line";
+    hoverLine.style.position = "absolute";
+    hoverLine.style.pointerEvents = "none";
+    hoverLine.style.visibility = "hidden";
+    hoverLine.style.width = "1.5px";
+    hoverLine.style.top = "0";
+    hoverLine.style.bottom = "0";
+    hoverLine.style.background = isDark ? "#4ea1f7" : "#3b82f6";
+    hoverLine.style.boxShadow = "0 0 0 1px rgba(59,130,246,0.2)";
+    hoverLine.style.transform = "translateX(-50%)";
+    container.appendChild(hoverLine);
+
+    const hoverBox = document.createElement("div");
+    hoverBox.className = "cg-hover-box";
+    hoverBox.style.position = "absolute";
+    hoverBox.style.pointerEvents = "none";
+    hoverBox.style.visibility = "hidden";
+    hoverBox.style.zIndex = "11";
+    hoverBox.style.padding = "10px 12px";
+    hoverBox.style.borderRadius = "10px";
+    hoverBox.style.background = isDark ? "#0f172a" : "#f8fafc";
+    hoverBox.style.color = isDark ? "#e2e8f0" : "#0f172a";
+    hoverBox.style.border = isDark
+      ? "1px solid rgba(148,163,184,0.35)"
+      : "1px solid rgba(148,163,184,0.55)";
+    hoverBox.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
+    hoverBox.style.fontSize = "13px";
+    container.appendChild(hoverBox);
+
+    // IMPORTANT: in LC v4, param.seriesData is a Map
     const handleMove = (param: any) => {
-      if (!param || !param.time || !param.point || !param.seriesPrices) {
+      if (!param || !param.time || !param.point || !param.seriesData) {
         tooltip.style.visibility = "hidden";
+        hoverBox.style.visibility = "hidden";
+        hoverDot.style.visibility = "hidden";
+        hoverLine.style.visibility = "hidden";
         return;
       }
 
-      const price = param.seriesPrices.get(series);
-      if (price === undefined) {
+      const data = param.seriesData.get(series);
+      const price = data?.value ?? data;
+      if (price === undefined || price === null) {
         tooltip.style.visibility = "hidden";
+        hoverBox.style.visibility = "hidden";
+        hoverDot.style.visibility = "hidden";
+        hoverLine.style.visibility = "hidden";
         return;
       }
 
       const d = new Date((param.time as number) * 1000);
+
+      const formattedPrice = formatNumber(Number(price), toCoin);
 
       tooltip.innerHTML = `
         <div style="opacity:0.75; margin-bottom:6px;">
@@ -371,7 +500,7 @@ export default function Page() {
           })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          ${formattedPrice} ${toCoin?.symbol ?? ""}
         </div>
       `;
 
@@ -385,6 +514,53 @@ export default function Page() {
       )}px`;
       tooltip.style.top = `${Math.max(y - h - 14, 8)}px`;
       tooltip.style.visibility = "visible";
+
+      hoverBox.innerHTML = `
+        <div style="font-weight:700; font-size:14px; margin-bottom:4px;">
+          ${fromCoin?.symbol ?? ""}/${toCoin?.symbol ?? ""}
+        </div>
+        <div style="font-size:16px; font-weight:700;">
+          ${formattedPrice} ${toCoin?.symbol ?? ""}
+        </div>
+        <div style="opacity:0.75; margin-top:4px;">
+          ${d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+          ·
+          ${d.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          })}
+        </div>
+      `;
+
+      const hbW = hoverBox.clientWidth;
+      const xCoord = chart.timeScale().timeToCoordinate(param.time as UTCTimestamp);
+      const yCoord = series.priceToCoordinate(price);
+
+      const clampedX = xCoord ?? x;
+
+      hoverBox.style.left = `${Math.min(
+        Math.max(clampedX - hbW / 2, 8),
+        container.clientWidth - hbW - 8
+      )}px`;
+      hoverBox.style.top = "12px";
+      hoverBox.style.visibility = "visible";
+
+      if (xCoord === null || yCoord === null || xCoord === undefined || yCoord === undefined) {
+        hoverDot.style.visibility = "hidden";
+        hoverLine.style.visibility = "hidden";
+      } else {
+        hoverDot.style.left = `${xCoord}px`;
+        hoverDot.style.top = `${yCoord}px`;
+        hoverDot.style.visibility = "visible";
+
+        hoverLine.style.left = `${xCoord}px`;
+        hoverLine.style.visibility = "visible";
+      }
     };
 
     chart.subscribeCrosshairMove(handleMove);
@@ -394,6 +570,21 @@ export default function Page() {
       chart.resize(container.clientWidth, 390);
     };
     window.addEventListener("resize", handleResize);
+
+    cleanupRef.current = () => {
+      chart.unsubscribeCrosshairMove(handleMove);
+      window.removeEventListener("resize", handleResize);
+      tooltip.remove();
+      hoverDot.remove();
+      hoverLine.remove();
+      hoverBox.remove();
+
+      if (chartRef.current === chart) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        seriesRef.current = null;
+      }
+    };
   }, [fromCoin, toCoin, range, getNormalizedHistory]);
 
   useEffect(() => {
@@ -401,6 +592,10 @@ export default function Page() {
     requestAnimationFrame(() => {
       requestAnimationFrame(build);
     });
+    return () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
   }, [fromCoin, toCoin, range, build]);
 
 
@@ -533,30 +728,33 @@ export default function Page() {
   // RESULT DISPLAY
 // ------------------------------------------------------------
   const renderResult = () => {
-    if (!result || !fromCoin || !toCoin) return null;
+    if (result === null || !fromCoin || !toCoin) return null;
 
-    const baseRate = result / Number(amount);
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return null;
+
+    const baseRate = result / amt;
 
     return (
       <div style={{ textAlign: "center", marginTop: "40px" }}>
         <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
+          {formatNumber(amt, fromCoin)} {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+          {formatNumber(result, toCoin)} {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} =
           {" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatNumber(baseRate, toCoin)}
           {" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} =
           {" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatNumber(1 / baseRate, fromCoin)}
           {" "}
           {fromCoin.symbol}
         </div>
@@ -604,7 +802,10 @@ export default function Page() {
         </div>
 
         {/* FROM */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+        <div
+          style={{ display: "flex", flexDirection: "column", position: "relative" }}
+          ref={fromDropdownRef}
+        >
           <h3>FROM</h3>
           <div
             className="selector-box"
@@ -642,7 +843,10 @@ export default function Page() {
         </div>
 
         {/* TO */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+        <div
+          style={{ display: "flex", flexDirection: "column", position: "relative" }}
+          ref={toDropdownRef}
+        >
           <h3>TO</h3>
           <div
             className="selector-box"
