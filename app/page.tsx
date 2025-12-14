@@ -72,9 +72,13 @@ export default function Page() {
   const [fromSearch, setFromSearch] = useState("");
   const [toSearch, setToSearch] = useState("");
 
+  const fromDropdownRef = useRef<HTMLDivElement | null>(null);
+  const toDropdownRef = useRef<HTMLDivElement | null>(null);
+
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const seriesRef = useRef<any>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   const historyCache = useRef<Record<string, HistoryPoint[]>>({});
   const realtimeCache = useRef<Record<string, number>>({});
@@ -84,6 +88,44 @@ export default function Page() {
     (window as any).chartRef = chartRef;
     (window as any).seriesRef = seriesRef;
   }, []);
+
+  // ------------------------------------------------------------
+  // CLOSE DROPDOWNS ON OUTSIDE CLICK
+  // ------------------------------------------------------------
+  useEffect(() => {
+    // Keep dropdown state in sync with clicks that happen anywhere on the page
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (!openDropdown) return;
+
+      const target = e.target as Node | null;
+      if (!target) return;
+
+      if (
+        openDropdown === "from" &&
+        fromDropdownRef.current &&
+        !fromDropdownRef.current.contains(target)
+      ) {
+        setOpenDropdown(null);
+        setFromSearch("");
+      }
+
+      if (
+        openDropdown === "to" &&
+        toDropdownRef.current &&
+        !toDropdownRef.current.contains(target)
+      ) {
+        setOpenDropdown(null);
+        setToSearch("");
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [openDropdown]);
 
   // ------------------------------------------------------------
   // LOAD COINS
@@ -345,16 +387,52 @@ export default function Page() {
     tooltip.style.backdropFilter = "blur(4px)";
     container.appendChild(tooltip);
 
-    // IMPORTANT: in LC v4, param.seriesPrices is a Map
+    const hoverDot = document.createElement("div");
+    hoverDot.className = "cg-hover-dot";
+    hoverDot.style.position = "absolute";
+    hoverDot.style.pointerEvents = "none";
+    hoverDot.style.visibility = "hidden";
+    hoverDot.style.width = "10px";
+    hoverDot.style.height = "10px";
+    hoverDot.style.borderRadius = "50%";
+    hoverDot.style.background = isDark ? "#4ea1f7" : "#3b82f6";
+    hoverDot.style.border = "2px solid #fff";
+    hoverDot.style.boxShadow = "0 0 0 2px rgba(59,130,246,0.35)";
+    hoverDot.style.transform = "translate(-50%, -50%)";
+    container.appendChild(hoverDot);
+
+    const hoverBox = document.createElement("div");
+    hoverBox.className = "cg-hover-box";
+    hoverBox.style.position = "absolute";
+    hoverBox.style.pointerEvents = "none";
+    hoverBox.style.visibility = "hidden";
+    hoverBox.style.zIndex = "11";
+    hoverBox.style.padding = "10px 12px";
+    hoverBox.style.borderRadius = "10px";
+    hoverBox.style.background = isDark ? "#0f172a" : "#f8fafc";
+    hoverBox.style.color = isDark ? "#e2e8f0" : "#0f172a";
+    hoverBox.style.border = isDark
+      ? "1px solid rgba(148,163,184,0.35)"
+      : "1px solid rgba(148,163,184,0.55)";
+    hoverBox.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
+    hoverBox.style.fontSize = "13px";
+    container.appendChild(hoverBox);
+
+    // IMPORTANT: in LC v4, param.seriesData is a Map
     const handleMove = (param: any) => {
-      if (!param || !param.time || !param.point || !param.seriesPrices) {
+      if (!param || !param.time || !param.point || !param.seriesData) {
         tooltip.style.visibility = "hidden";
+        hoverBox.style.visibility = "hidden";
+        hoverDot.style.visibility = "hidden";
         return;
       }
 
-      const price = param.seriesPrices.get(series);
-      if (price === undefined) {
+      const data = param.seriesData.get(series);
+      const price = data?.value ?? data;
+      if (price === undefined || price === null) {
         tooltip.style.visibility = "hidden";
+        hoverBox.style.visibility = "hidden";
+        hoverDot.style.visibility = "hidden";
         return;
       }
 
@@ -394,6 +472,48 @@ export default function Page() {
       )}px`;
       tooltip.style.top = `${Math.max(y - h - 14, 8)}px`;
       tooltip.style.visibility = "visible";
+
+      hoverBox.innerHTML = `
+        <div style="font-weight:700; font-size:14px; margin-bottom:4px;">
+          ${fromCoin?.symbol ?? ""}/${toCoin?.symbol ?? ""}
+        </div>
+        <div style="font-size:16px; font-weight:700;">
+          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+        </div>
+        <div style="opacity:0.75; margin-top:4px;">
+          ${d.toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+          ·
+          ${d.toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          })}
+        </div>
+      `;
+
+      const hbW = hoverBox.clientWidth;
+      const hbH = hoverBox.clientHeight;
+      hoverBox.style.left = `${Math.min(
+        Math.max(x - hbW / 2, 8),
+        container.clientWidth - hbW - 8
+      )}px`;
+      hoverBox.style.top = `${Math.max(y - hbH - 12, 8)}px`;
+      hoverBox.style.visibility = "visible";
+
+      const xCoord = chart.timeScale().timeToCoordinate(param.time as UTCTimestamp);
+      const yCoord = series.priceToCoordinate(price);
+
+      if (xCoord === null || yCoord === null || xCoord === undefined || yCoord === undefined) {
+        hoverDot.style.visibility = "hidden";
+      } else {
+        hoverDot.style.left = `${xCoord}px`;
+        hoverDot.style.top = `${yCoord}px`;
+        hoverDot.style.visibility = "visible";
+      }
     };
 
     chart.subscribeCrosshairMove(handleMove);
@@ -642,7 +762,10 @@ export default function Page() {
         </div>
 
         {/* FROM */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+        <div
+          style={{ display: "flex", flexDirection: "column", position: "relative" }}
+          ref={fromDropdownRef}
+        >
           <h3>FROM</h3>
           <div
             className="selector-box"
@@ -680,7 +803,10 @@ export default function Page() {
         </div>
 
         {/* TO */}
-        <div style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+        <div
+          style={{ display: "flex", flexDirection: "column", position: "relative" }}
+          ref={toDropdownRef}
+        >
           <h3>TO</h3>
           <div
             className="selector-box"
