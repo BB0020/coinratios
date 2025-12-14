@@ -57,6 +57,25 @@ const FIAT_LIST: Coin[] = [
 ];
 
 // ------------------------------------------------------------
+// NUMBER FORMATTER (COINGECKO-STYLE PRECISION)
+// ------------------------------------------------------------
+const formatNumber = (value: number) => {
+  if (!Number.isFinite(value)) return "-";
+
+  const abs = Math.abs(value);
+  const maximumFractionDigits =
+    abs >= 100000
+      ? 2
+      : abs >= 1
+        ? 4
+        : abs >= 0.01
+          ? 6
+          : 8;
+
+  return value.toLocaleString(undefined, { maximumFractionDigits });
+};
+
+// ------------------------------------------------------------
 // PAGE COMPONENT
 // ------------------------------------------------------------
 export default function Page() {
@@ -438,6 +457,8 @@ export default function Page() {
 
       const d = new Date((param.time as number) * 1000);
 
+      const formattedPrice = formatNumber(Number(price));
+
       tooltip.innerHTML = `
         <div style="opacity:0.75; margin-bottom:6px;">
           ${d.toLocaleDateString(undefined, {
@@ -451,7 +472,7 @@ export default function Page() {
           })}
         </div>
         <div style="font-size:15px; font-weight:600;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          ${formattedPrice} ${toCoin?.symbol ?? ""}
         </div>
       `;
 
@@ -471,7 +492,7 @@ export default function Page() {
           ${fromCoin?.symbol ?? ""}/${toCoin?.symbol ?? ""}
         </div>
         <div style="font-size:16px; font-weight:700;">
-          $${Number(price).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          ${formattedPrice} ${toCoin?.symbol ?? ""}
         </div>
         <div style="opacity:0.75; margin-top:4px;">
           ${d.toLocaleDateString(undefined, {
@@ -673,30 +694,33 @@ export default function Page() {
   // RESULT DISPLAY
 // ------------------------------------------------------------
   const renderResult = () => {
-    if (!result || !fromCoin || !toCoin) return null;
+    if (result === null || !fromCoin || !toCoin) return null;
 
-    const baseRate = result / Number(amount);
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) return null;
+
+    const baseRate = result / amt;
 
     return (
       <div style={{ textAlign: "center", marginTop: "40px" }}>
         <div style={{ fontSize: "22px", opacity: 0.65 }}>
-          1 {fromCoin.symbol} → {toCoin.symbol}
+          {formatNumber(amt)} {fromCoin.symbol} → {toCoin.symbol}
         </div>
 
         <div style={{ fontSize: "60px", fontWeight: 700, marginTop: "10px" }}>
-          {result.toLocaleString(undefined, { maximumFractionDigits: 8 })} {toCoin.symbol}
+          {formatNumber(result)} {toCoin.symbol}
         </div>
 
         <div style={{ marginTop: "10px", opacity: 0.7 }}>
           1 {fromCoin.symbol} =
           {" "}
-          {baseRate.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatNumber(baseRate)}
           {" "}
           {toCoin.symbol}
           <br />
           1 {toCoin.symbol} =
           {" "}
-          {(1 / baseRate).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+          {formatNumber(1 / baseRate)}
           {" "}
           {fromCoin.symbol}
         </div>
